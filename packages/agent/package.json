@@ -1,0 +1,21 @@
+{
+  "name": "@ai-qa/agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The AI QA agent: observes the page, asks the LLM what to do, drives a real browser, records grounded verdicts per acceptance criterion",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@ai-qa/llm": "*",
+    "playwright": "^1.49.0"
+  },
+  "devDependencies": {
+    "@types/jsdom": "^21.1.7",
+    "@types/node": "^22.9.0",
+    "jsdom": "^25.0.1",
+    "tsx": "^4.19.2"
+  }
+}

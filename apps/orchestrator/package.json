@@ -5,11 +5,13 @@
   "type": "module",
   "description": "Receives Jira webhooks and runs the AI QA agent when a ticket enters In Testing",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "start": "tsx src/server.ts",
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@ai-qa/agent": "*",
+    "@ai-qa/llm": "*",
     "dotenv": "^16.4.5",
     "express": "^4.21.1"
   },

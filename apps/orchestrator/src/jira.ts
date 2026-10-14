@@ -61,6 +61,13 @@ export class JiraClient {
     await this.request(`/issue/${encodeURIComponent(key)}/transitions`, { method: "POST", body: JSON.stringify({ transition: { id: t.id } }) });
   }
 
+  /** Jira's edit-issue `update.labels` operations. */
+  updateLabels(key: string, { add = [], remove = [] }: { add?: string[]; remove?: string[] }) {
+    const ops = [...remove.map((l) => ({ remove: l })), ...add.map((l) => ({ add: l }))];
+    if (!ops.length) return Promise.resolve();
+    return this.request(`/issue/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify({ update: { labels: ops } }) });
+  }
+
   createIssue(fields: { summary: string; description: string; issuetype: string; labels?: string[] }) {
     return this.request<{ id: string; key: string }>(`/issue`, {
       method: "POST",

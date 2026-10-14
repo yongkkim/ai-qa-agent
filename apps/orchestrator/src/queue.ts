@@ -1,4 +1,4 @@
-export type RunState = "queued" | "running" | "passed" | "failed" | "error";
+export type RunState = "queued" | "running" | "passed" | "failed" | "incomplete" | "error";
 
 export interface Run {
   id: number;
@@ -7,7 +7,10 @@ export interface Run {
   queuedAt: string;
   startedAt?: string;
   finishedAt?: string;
+  /** e.g. QA-101-20261014-173012, also the artifacts folder name. */
+  label?: string;
   summary?: string;
+  reportUrl?: string;
 }
 
 /**
@@ -18,7 +21,7 @@ export interface Run {
 export class RunQueue {
   private runs: Run[] = [];
   private nextId = 1;
-  private busy = false;
+  private draining: Promise<void> | null = null;
 
   constructor(private readonly worker: (run: Run) => Promise<void>) {}
 
@@ -27,7 +30,7 @@ export class RunQueue {
     if (existing) return { run: existing, duplicate: true };
     const run: Run = { id: this.nextId++, issueKey, state: "queued", queuedAt: new Date().toISOString() };
     this.runs.push(run);
-    void this.drain();
+    this.draining ??= this.drain().finally(() => (this.draining = null));
     return { run, duplicate: false };
   }
 
@@ -35,25 +38,25 @@ export class RunQueue {
     return [...this.runs].reverse();
   }
 
+  /** Resolves when nothing is queued or running (used by tests and the demo). */
+  async idle(): Promise<void> {
+    while (this.draining) await this.draining;
+  }
+
   private async drain() {
-    if (this.busy) return;
-    this.busy = true;
-    try {
-      let next: Run | undefined;
-      while ((next = this.runs.find((r) => r.state === "queued"))) {
-        next.state = "running";
-        next.startedAt = new Date().toISOString();
-        try {
-          await this.worker(next);
-        } catch (err) {
-          next.state = "error";
-          next.summary = (err as Error).message;
-          console.error(`[orchestrator] run #${next.id} ${next.issueKey} crashed:`, err);
-        }
-        next.finishedAt = new Date().toISOString();
+    let next: Run | undefined;
+    while ((next = this.runs.find((r) => r.state === "queued"))) {
+      next.state = "running";
+      next.startedAt = new Date().toISOString();
+      try {
+        await this.worker(next);
+        if (next.state === "running") next.state = "passed";
+      } catch (err) {
+        next.state = "error";
+        next.summary = (err as Error).message;
+        console.error(`[orchestrator] run #${next.id} ${next.issueKey} crashed:`, err);
       }
-    } finally {
-      this.busy = false;
+      next.finishedAt = new Date().toISOString();
     }
   }
 }

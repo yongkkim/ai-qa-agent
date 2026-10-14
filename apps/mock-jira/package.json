@@ -5,8 +5,8 @@
   "type": "module",
   "description": "A tiny Jira stand-in: Jira-shaped REST API, kanban UI and status-change webhooks",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "start": "tsx src/server.ts",
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
     "reset": "tsx src/reset.ts",
     "typecheck": "tsc -p tsconfig.json"
   },

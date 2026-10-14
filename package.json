@@ -8,14 +8,20 @@
     "packages/*"
   ],
   "scripts": {
+    "setup": "tsx scripts/setup.ts",
     "dev": "concurrently -n app,jira,orch -c cyan,magenta,yellow \"npm run dev -w sample-app\" \"npm run dev -w mock-jira\" \"npm run dev -w orchestrator\"",
     "dev:buggy": "concurrently -n app,jira,orch -c cyan,magenta,yellow \"npm run dev:buggy -w sample-app\" \"npm run dev -w mock-jira\" \"npm run dev -w orchestrator\"",
+    "demo": "tsx scripts/demo.ts",
+    "llm:check": "npm run check -w @ai-qa/llm",
+    "test": "node scripts/test.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "jira:reset": "npm run reset -w mock-jira"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",
-    "typescript": "^5.6.0"
+    "typescript": "^5.6.0",
+    "tsx": "^4.19.2",
+    "@types/node": "^22.9.0"
   },
   "engines": {
     "node": ">=20"

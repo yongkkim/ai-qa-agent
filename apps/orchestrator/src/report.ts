@@ -1,0 +1,81 @@
+import type { AgentReport, CriterionResult } from "@ai-qa/agent";
+
+const ICON: Record<CriterionResult["status"], string> = { pass: "✅", fail: "❌", blocked: "⚠️", not_tested: "⏭️" };
+const VERDICT: Record<AgentReport["verdict"], string> = {
+  passed: "✅ PASSED",
+  failed: "❌ FAILED",
+  incomplete: "⚠️ INCOMPLETE (needs a human)",
+  error: "💥 ERROR",
+};
+
+export function duration(ms: number) {
+  const s = Math.round(ms / 1000);
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+}
+
+function counts(report: AgentReport) {
+  const n = (s: CriterionResult["status"]) => report.criteria.filter((c) => c.status === s).length;
+  const parts = [`${n("pass")}/${report.criteria.length} passed`];
+  if (n("fail")) parts.push(`${n("fail")} failed`);
+  if (n("blocked")) parts.push(`${n("blocked")} blocked`);
+  if (n("not_tested")) parts.push(`${n("not_tested")} not tested`);
+  return parts.join(", ");
+}
+
+/**
+ * The Jira comment posted after a run. Markdown subset (the mock board renders
+ * **bold**, `code` and images). Real Jira would need this converted to ADF.
+ */
+export function formatResultComment(report: AgentReport, runLabel: string, artifactsUrl: string, bugKeys: string[] = []): string {
+  const lines: string[] = [];
+  lines.push(`🤖 **AI QA result: ${VERDICT[report.verdict]}** · ${counts(report)}`);
+  lines.push(
+    `Model \`${report.model.provider}/${report.model.model}\` · ${report.steps.length} steps · ${report.usage.llmCalls} LLM calls · ${duration(report.durationMs)} · run \`${runLabel}\``,
+  );
+  lines.push("");
+
+  for (const c of report.criteria) {
+    lines.push(`${ICON[c.status]} **${c.id}** ${c.text}`);
+    if (c.status === "pass" && c.observed) lines.push(`    Evidence: \`${c.observed}\``);
+    if (c.status === "fail") {
+      if (c.expected) lines.push(`    Expected: ${c.expected}`);
+      if (c.actual) lines.push(`    Actual: ${c.actual}`);
+      if (c.observed) lines.push(`    Observed on page: \`${c.observed}\``);
+      if (c.stepsToReproduce) lines.push(`    Steps to reproduce: ${c.stepsToReproduce.replace(/\n+/g, " ")}`);
+    }
+    if (c.notes && c.status !== "pass") lines.push(`    Notes: ${c.notes}`);
+    if (c.grounded === false) lines.push(`    ⚠️ The agent's evidence could not be verified on the page; please double-check this one.`);
+    if ((c.status === "fail" || c.status === "blocked") && c.screenshot) lines.push(`    ![${c.id} screenshot](${artifactsUrl}/${c.screenshot})`);
+  }
+
+  if (report.summary) lines.push("", `**Summary:** ${report.summary}`);
+  if (report.pageIssues.length) {
+    lines.push("", `**Page issues seen while testing:**`);
+    for (const i of report.pageIssues.slice(0, 5)) lines.push(`- \`${i}\``);
+  }
+  if (bugKeys.length) lines.push("", `**Bugs filed:** ${bugKeys.join(", ")}`);
+  if (report.error) lines.push("", `**Error:** \`${report.error.split("\n")[0]}\``);
+  lines.push("", `Full report: ${artifactsUrl}/report.json`);
+  return lines.join("\n");
+}
+
+export function formatBugDescription(parentKey: string, c: CriterionResult, report: AgentReport, artifactsUrl: string): string {
+  return [
+    `Found by the AI QA agent while testing ${parentKey}.`,
+    "",
+    `Acceptance criterion (${c.id}): ${c.text}`,
+    "",
+    `Expected: ${c.expected ?? "(see criterion)"}`,
+    `Actual: ${c.actual ?? "(see evidence)"}`,
+    c.observed ? `Observed on page: \`${c.observed}\`` : "",
+    "",
+    "Steps to reproduce:",
+    c.stepsToReproduce ?? "(not provided — see the run report)",
+    "",
+    `Model: ${report.model.provider}/${report.model.model}`,
+    c.screenshot ? `![${c.id} screenshot](${artifactsUrl}/${c.screenshot})` : "",
+    `Run report: ${artifactsUrl}/report.json`,
+  ]
+    .filter((l, i, arr) => !(l === "" && arr[i - 1] === ""))
+    .join("\n");
+}

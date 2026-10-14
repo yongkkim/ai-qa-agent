@@ -1,42 +1,145 @@
-import type { JiraClient, JiraIssue } from "./jira.js";
+import { join } from "node:path";
+import { extractAcceptanceCriteria, runAgent, type AgentReport, type BrowserDriver } from "@ai-qa/agent";
+import { LLMConfigError, type LLMProvider } from "@ai-qa/llm";
+import type { JiraClient } from "./jira.js";
 import type { Run } from "./queue.js";
+import { formatBugDescription, formatResultComment } from "./report.js";
 
-/**
- * Runs QA for one ticket. Day 1: proves the trigger loop end to end
- * (webhook -> fetch ticket -> report back to Jira). Day 2 replaces the body
- * with the AI browser agent from packages/agent.
- */
-export async function runQa(run: Run, jira: JiraClient): Promise<void> {
-  const issue: JiraIssue = await jira.getIssue(run.issueKey);
-  console.log(`[orchestrator] run #${run.id}: ${issue.key} "${issue.fields.summary}"`);
+export const LABELS = {
+  running: "ai-qa-running",
+  passed: "ai-qa-passed",
+  failed: "ai-qa-failed",
+  incomplete: "ai-qa-incomplete",
+  error: "ai-qa-error",
+} as const;
+const ALL_LABELS = Object.values(LABELS);
 
-  const criteria = extractAcceptanceCriteria(issue.fields.description);
-  console.log(`[orchestrator] found ${criteria.length} acceptance criteria`);
-
-  await jira.addComment(
-    issue.key,
-    [
-      `🤖 **AI QA run #${run.id} picked up this ticket.**`,
-      `Found ${criteria.length} acceptance criteria to verify.`,
-      "",
-      "_(Agent not wired in yet: Day 1 checks the trigger loop only.)_",
-    ].join("\n"),
-  );
-
-  run.state = "passed";
-  run.summary = `trigger loop ok, ${criteria.length} criteria found`;
+export interface RunnerDeps {
+  jira: JiraClient;
+  /** Builds the LLM from config; may throw LLMConfigError. */
+  createLLM: () => LLMProvider;
+  createBrowser: () => Promise<BrowserDriver>;
+  artifactsDir: string;
+  /** Public URL prefix that serves artifactsDir (for screenshot links in comments). */
+  artifactsUrl: string;
+  defaultAppUrl: string;
+  statusOnPass: string;
+  statusOnFail: string;
+  createBugTickets: boolean;
+  agent: { maxSteps: number; timeoutMs: number; stepScreenshots: boolean };
+  log?: (line: string) => void;
 }
 
-/** Pulls the numbered list under an "Acceptance Criteria" heading out of a ticket description. */
-export function extractAcceptanceCriteria(description: string): string[] {
-  const lines = description.split(/\r?\n/);
-  const start = lines.findIndex((l) => /^\s*(#+\s*)?acceptance criteria\s*:?\s*$/i.test(l));
-  if (start === -1) return [];
-  const out: string[] = [];
-  for (const line of lines.slice(start + 1)) {
-    const m = line.match(/^\s*(?:\d+[.)]|[-*])\s+(.*\S)\s*$/);
-    if (m) out.push(m[1]);
-    else if (line.trim() && out.length) break; // next section
-  }
-  return out;
+/** "Test URL: http://..." in the description wins; otherwise the configured app URL. */
+export function findTestUrl(description: string, fallback: string): string {
+  return description.match(/^\s*(?:test|app)\s*url\s*:\s*(\S+)/im)?.[1] ?? fallback;
+}
+
+function runLabelFor(key: string, at = new Date()) {
+  const ts = at.toISOString().replace(/[-:]/g, "").replace(/\..*$/, "").replace("T", "-");
+  return `${key}-${ts}`;
+}
+
+/** Runs QA for one ticket and reports back to Jira: comment, labels, transition, bug tickets. */
+export function createRunner(deps: RunnerDeps) {
+  const log = deps.log ?? ((l: string) => console.log(`[orchestrator] ${l}`));
+
+  return async function runQa(run: Run): Promise<void> {
+    const { jira } = deps;
+    const issue = await jira.getIssue(run.issueKey);
+    const key = issue.key;
+    const setOutcomeLabel = (label: string) => jira.updateLabels(key, { remove: ALL_LABELS.filter((l) => l !== label), add: [label] });
+
+    const criteria = extractAcceptanceCriteria(issue.fields.description);
+    if (!criteria.length) {
+      await jira.addComment(
+        key,
+        `🤖 **AI QA could not start:** no acceptance criteria found.\nAdd a numbered list under an \`Acceptance Criteria:\` heading in the description, then move the ticket to In Testing again.`,
+      );
+      await setOutcomeLabel(LABELS.incomplete);
+      run.state = "error";
+      run.summary = "no acceptance criteria";
+      return;
+    }
+
+    let llm: LLMProvider;
+    try {
+      llm = deps.createLLM();
+    } catch (err) {
+      const msg = err instanceof LLMConfigError ? err.message : (err as Error).message;
+      await jira.addComment(key, `🤖 **AI QA could not start:** the AI model is not configured.\n${msg}`);
+      await setOutcomeLabel(LABELS.error);
+      run.state = "error";
+      run.summary = msg;
+      log(`${key}: ${msg}`);
+      return;
+    }
+
+    const appUrl = findTestUrl(issue.fields.description, deps.defaultAppUrl);
+    const runLabel = runLabelFor(key);
+    run.label = runLabel;
+    const runDir = join(deps.artifactsDir, runLabel);
+    const artifactsUrl = `${deps.artifactsUrl}/${runLabel}`;
+
+    await setOutcomeLabel(LABELS.running);
+    await jira.addComment(
+      key,
+      `🤖 **AI QA run started** with \`${llm.provider}/${llm.model}\` — testing ${criteria.length} acceptance criteria against ${appUrl}. Results will be posted here.`,
+    );
+
+    let report: AgentReport;
+    let browser: BrowserDriver | undefined;
+    try {
+      browser = await deps.createBrowser();
+      report = await runAgent(
+        { key, summary: issue.fields.summary, description: issue.fields.description, criteria, appUrl },
+        { llm, browser, runDir, ...deps.agent, log: (l) => log(`[${key}] ${l}`) },
+      );
+    } catch (err) {
+      // Browser failed to launch etc. (runAgent itself never throws for LLM/page errors).
+      const msg = (err as Error).message;
+      await jira.addComment(key, `🤖 **AI QA run failed to start:** \`${msg.split("\n")[0]}\``);
+      await setOutcomeLabel(LABELS.error);
+      run.state = "error";
+      run.summary = msg;
+      return;
+    } finally {
+      await browser?.close();
+    }
+
+    // File one bug per failed criterion, so each can be fixed and tracked on its own.
+    const bugKeys: string[] = [];
+    if (report.verdict === "failed" && deps.createBugTickets) {
+      for (const c of report.criteria.filter((x) => x.status === "fail")) {
+        try {
+          const bug = await jira.createIssue({
+            summary: `[${key} ${c.id}] ${c.actual ? truncate(c.actual, 90) : `Fails: ${truncate(c.text, 90)}`}`,
+            description: formatBugDescription(key, c, report, artifactsUrl),
+            issuetype: "Bug",
+            labels: ["found-by-ai-qa", `parent-${key}`],
+          });
+          bugKeys.push(bug.key);
+        } catch (err) {
+          log(`${key}: could not create bug ticket: ${(err as Error).message}`);
+        }
+      }
+    }
+
+    await jira.addComment(key, formatResultComment(report, runLabel, artifactsUrl, bugKeys));
+    await setOutcomeLabel(LABELS[report.verdict]);
+
+    const target = report.verdict === "passed" ? deps.statusOnPass : report.verdict === "failed" ? deps.statusOnFail : undefined;
+    if (target) {
+      await jira.transitionTo(key, target).catch((err) => log(`${key}: could not move to "${target}": ${(err as Error).message}`));
+    }
+
+    run.state = report.verdict === "passed" ? "passed" : report.verdict === "failed" ? "failed" : report.verdict === "error" ? "error" : "incomplete";
+    run.summary = `${report.criteria.filter((c) => c.status === "pass").length}/${report.criteria.length} criteria passed${bugKeys.length ? `, bugs: ${bugKeys.join(", ")}` : ""}`;
+    run.reportUrl = `${artifactsUrl}/report.json`;
+  };
+}
+
+function truncate(s: string, n: number) {
+  const t = s.replace(/\s+/g, " ").trim();
+  return t.length > n ? `${t.slice(0, n - 1)}…` : t;
 }
