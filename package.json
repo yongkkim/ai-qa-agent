@@ -2,6 +2,7 @@
   "name": "ai-qa-agent",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Model-agnostic AI QA agent that verifies features when a (mock) Jira ticket moves to In Testing",
   "workspaces": [
     "apps/*",
@@ -14,14 +15,15 @@
     "demo": "tsx scripts/demo.ts",
     "llm:check": "npm run check -w @ai-qa/llm",
     "test": "node scripts/test.mjs",
-    "typecheck": "npm run typecheck --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present && tsc -p scripts",
     "jira:reset": "npm run reset -w mock-jira"
   },
   "devDependencies": {
+    "@types/node": "^22.9.0",
     "concurrently": "^9.1.0",
-    "typescript": "^5.6.0",
+    "dotenv": "^16.6.1",
     "tsx": "^4.19.2",
-    "@types/node": "^22.9.0"
+    "typescript": "^5.6.0"
   },
   "engines": {
     "node": ">=20"

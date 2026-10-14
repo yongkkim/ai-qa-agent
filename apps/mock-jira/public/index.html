@@ -28,6 +28,15 @@
   .type.Story { background: var(--green); } .type.Bug { background: #c9372c; } .type.Task { background: var(--blue); }
   .badge { margin-left: auto; font-size: 11px; padding: 1px 6px; border-radius: 3px; background: #e9f2ff; color: var(--blue); }
   .badge.run { background: #f3f0ff; color: var(--purple); }
+  .qa { font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 3px; white-space: nowrap; }
+  .qa.running { background: #f3f0ff; color: var(--purple); animation: pulse 1.2s ease-in-out infinite; }
+  .qa.passed { background: #dcfff1; color: #216e4e; }
+  .qa.failed { background: #ffeceb; color: #ae2e24; }
+  .qa.incomplete, .qa.error { background: #fff7d6; color: var(--amber); }
+  .qa.found { background: #f1f2f4; color: var(--muted); font-weight: 500; }
+  @keyframes pulse { 50% { opacity: .55; } }
+  .labels { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
+  .comment a { color: var(--blue); word-break: break-all; }
   .col[data-status="In Testing"] { background: #f3f0ff; }
 
   .drawer { position: fixed; top: 0; right: 0; height: 100vh; width: min(560px, 100vw); background: var(--panel); border-left: 1px solid var(--line); box-shadow: -8px 0 24px rgba(9,30,66,.12); transform: translateX(100%); transition: transform .18s ease; display: flex; flex-direction: column; }
@@ -89,7 +98,21 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&
 const md = (s) => esc(s)
   .replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, '<img alt="$1" src="$2">')
   .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
-  .replace(/`([^`]+)`/g, "<code>$1</code>");
+  .replace(/`([^`]+)`/g, "<code>$1</code>")
+  .replace(/(?<!src=")(https?:\/\/[^\s<"]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+
+// Status the AI QA agent writes onto tickets as labels (same as it would on real Jira).
+const QA_BADGES = {
+  "ai-qa-running": ["running", "🤖 AI testing…"],
+  "ai-qa-passed": ["passed", "✅ QA passed"],
+  "ai-qa-failed": ["failed", "❌ QA failed"],
+  "ai-qa-incomplete": ["incomplete", "⚠️ Needs review"],
+  "ai-qa-error": ["error", "💥 QA error"],
+  "found-by-ai-qa": ["found", "🤖 found by AI"],
+};
+const badges = (issue) => issue.fields.labels
+  .filter((l) => QA_BADGES[l])
+  .map((l) => `<span class="qa ${QA_BADGES[l][0]}">${QA_BADGES[l][1]}</span>`).join("");
 const ago = (iso) => new Date(iso).toLocaleString();
 
 async function load() {
@@ -107,6 +130,7 @@ function render() {
       ${cards.map((i) => `
         <article class="card" draggable="true" data-key="${i.key}">
           <div class="summary">${esc(i.fields.summary)}</div>
+          ${badges(i) ? `<div class="labels">${badges(i)}</div>` : ""}
           <div class="meta"><span class="type ${i.fields.issuetype.name}"></span>${i.key}
             ${i.fields.comment.total ? `<span class="badge">${i.fields.comment.total} 💬</span>` : ""}
           </div>
@@ -152,8 +176,8 @@ function renderDrawer(full) {
   }
   document.getElementById("d-type").className = `type ${i.fields.issuetype.name}`;
   document.getElementById("d-key").textContent = i.key;
-  document.getElementById("d-summary").textContent = i.fields.summary;
-  document.getElementById("d-desc").textContent = i.fields.description || "No description.";
+  document.getElementById("d-summary").innerHTML = esc(i.fields.summary) + (badges(i) ? `<div class="labels" style="margin-top:8px">${badges(i)}</div>` : "");
+  document.getElementById("d-desc").innerHTML = i.fields.description ? md(i.fields.description) : "No description.";
   const comments = i.fields.comment.comments;
   document.getElementById("d-comments").innerHTML = comments.length
     ? comments.map((c) => `<div class="comment ${c.author.displayName === "AI QA Agent" ? "agent" : ""}">

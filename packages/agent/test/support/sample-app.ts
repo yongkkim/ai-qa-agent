@@ -9,6 +9,8 @@ const SAMPLE_APP = resolve(here, "../../../../apps/sample-app");
 export interface BuiltApp {
   js: string;
   css: string;
+  /** Folder with the built index.html + assets, for serving to a real browser. */
+  dir: string;
 }
 
 const cache = new Map<string, Promise<BuiltApp>>();
@@ -33,6 +35,7 @@ export function buildSampleApp(mode: "normal" | "buggy"): Promise<BuiltApp> {
         if (!existsSync(assets)) throw new Error("sample app build produced no assets");
         const files = readdirSync(assets);
         return {
+          dir: outDir,
           js: readFileSync(join(assets, files.find((f) => f.endsWith(".js"))!), "utf8"),
           css: readFileSync(join(assets, files.find((f) => f.endsWith(".css"))!), "utf8"),
         };

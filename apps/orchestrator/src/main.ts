@@ -21,7 +21,13 @@ const jira = new JiraClient(JIRA_BASE_URL);
 const runner = createRunner({
   jira,
   createLLM: () => createProviderFromEnv(),
-  createBrowser: () => PlaywrightDriver.launch({ headless: AGENT.headless, slowMo: AGENT.slowMo }),
+  createBrowser: () =>
+    PlaywrightDriver.launch({
+      headless: AGENT.headless,
+      slowMo: AGENT.slowMo,
+      channel: AGENT.browserChannel,
+      executablePath: AGENT.browserPath,
+    }),
   artifactsDir: ARTIFACTS_DIR,
   artifactsUrl: `${PUBLIC_URL}/artifacts`,
   defaultAppUrl: APP_UNDER_TEST_URL,

@@ -35,4 +35,6 @@ export const AGENT = {
   headless: bool(env.AGENT_HEADLESS, true),
   slowMo: num(env.AGENT_SLOW_MO_MS, 0),
   stepScreenshots: bool(env.AGENT_STEP_SCREENSHOTS, true),
+  browserChannel: env.AGENT_BROWSER_CHANNEL || undefined,
+  browserPath: env.AGENT_BROWSER_PATH || undefined,
 };

@@ -77,8 +77,11 @@ export async function runAgent(ticket: TicketUnderTest, opts: AgentOptions): Pro
     pageIssues.push(...fresh);
     return fresh;
   };
-  const describe = (ref: string) =>
-    lastPage.split("\n").find((l) => l.includes(`[${ref}]`))?.trim().replace(/\s+\(.*\)$/, "") ?? `[${ref}]`;
+  /** Short label for an element, e.g. `[e2] button "Add"` (role + name, without value/state). */
+  const describe = (ref: string) => {
+    const line = lastPage.split("\n").find((l) => l.includes(`[${ref}]`))?.trim();
+    return line ? line.replace(/\s+(value=|placeholder=|options=|href=|maxlength=|\().*$/, "") : `[${ref}]`;
+  };
   const remaining = () => criteria.filter((c) => c.status === "not_tested").map((c) => c.id);
 
   async function execute(call: ToolCall, stepN: number): Promise<ExecResult> {
@@ -212,7 +215,7 @@ export async function runAgent(ticket: TicketUnderTest, opts: AgentOptions): Pro
       }
 
       pruneOldSnapshots(messages);
-      const res = await llm.chat({ system: SYSTEM_PROMPT, messages, tools: AGENT_TOOLS, maxTokens: opts.maxTokens ?? 4096 });
+      const res = await llm.chat({ system: SYSTEM_PROMPT, messages, tools: AGENT_TOOLS, maxTokens: opts.maxTokens ?? 8192 });
       usage.llmCalls++;
       usage.inputTokens += res.usage.inputTokens;
       usage.outputTokens += res.usage.outputTokens;

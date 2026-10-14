@@ -9,6 +9,10 @@ export interface PlaywrightOptions {
   /** Slow every action down (ms) so a human can follow along. */
   slowMo?: number;
   viewport?: { width: number; height: number };
+  /** Use an existing Chromium/Chrome binary instead of Playwright's download. */
+  executablePath?: string;
+  /** e.g. "chrome" or "msedge" to drive the locally installed browser. */
+  channel?: string;
 }
 
 /**
@@ -24,24 +28,35 @@ export class PlaywrightDriver implements BrowserDriver {
     private readonly context: BrowserContext,
     private readonly page: Page,
   ) {
+    // Browsers request /favicon.ico on their own; a missing one is not an app bug.
+    const noise = (url: string) => /\/favicon\.ico(\?|$)/.test(url);
     page.on("console", (msg) => {
-      if (msg.type() === "error") this.issues.push(`console.error: ${msg.text()}`);
+      if (msg.type() === "error" && !noise(msg.location().url)) this.issues.push(`console.error: ${msg.text()}`);
     });
     page.on("pageerror", (err) => this.issues.push(`uncaught exception: ${err.message}`));
     page.on("requestfailed", (req) => this.issues.push(`request failed: ${req.method()} ${req.url()} (${req.failure()?.errorText})`));
     page.on("response", (res) => {
-      if (res.status() >= 400) this.issues.push(`HTTP ${res.status()}: ${res.request().method()} ${res.url()}`);
+      if (res.status() >= 400 && !noise(res.url())) this.issues.push(`HTTP ${res.status()}: ${res.request().method()} ${res.url()}`);
     });
   }
 
   static async launch(opts: PlaywrightOptions = {}): Promise<PlaywrightDriver> {
     let browser: Browser;
     try {
-      browser = await chromium.launch({ headless: opts.headless ?? true, slowMo: opts.slowMo });
+      browser = await chromium.launch({
+        headless: opts.headless ?? true,
+        slowMo: opts.slowMo,
+        executablePath: opts.executablePath || undefined,
+        channel: opts.channel || undefined,
+      });
     } catch (err) {
       const msg = (err as Error).message;
       if (/Executable doesn't exist|browserType\.launch/i.test(msg)) {
-        throw new Error("Chromium for Playwright is not installed. Run: npx playwright install chromium\n" + msg.split("\n")[0]);
+        throw new Error(
+          "Chromium for Playwright is not installed. Run: npx playwright install chromium " +
+            "(or set AGENT_BROWSER_CHANNEL=chrome to use your installed Chrome)\n" +
+            msg.split("\n")[0],
+        );
       }
       throw err;
     }
