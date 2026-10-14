@@ -2,3 +2,5 @@ node_modules/
 dist/
 .env
 *.log
+apps/mock-jira/data/db.json
+artifacts/

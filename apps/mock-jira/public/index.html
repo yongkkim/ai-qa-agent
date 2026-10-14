@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mock Jira · QA board</title>
+<style>
+  :root {
+    --bg: #f7f8f9; --panel: #ffffff; --ink: #172b4d; --muted: #626f86; --line: #dcdfe4;
+    --col: #f1f2f4; --blue: #0c66e4; --green: #1f845a; --purple: #6e5dc6; --amber: #a54800;
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif; color: var(--ink);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 18px; margin: 0; }
+  header .sub { color: var(--muted); font-size: 13px; margin-left: 10px; font-weight: 400; }
+  header button { font: inherit; font-size: 13px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); cursor: pointer; }
+  .board { display: grid; grid-template-columns: repeat(4, minmax(220px, 1fr)); gap: 12px; padding: 20px 24px; overflow-x: auto; }
+  .col { background: var(--col); border-radius: 6px; padding: 10px; min-height: 60vh; }
+  .col.drop { outline: 2px dashed var(--blue); }
+  .col h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 2px 4px 10px; display: flex; justify-content: space-between; }
+  .card { background: var(--panel); border-radius: 4px; padding: 10px 12px; margin-bottom: 8px; box-shadow: 0 1px 1px rgba(9,30,66,.25); cursor: grab; }
+  .card:hover { background: #fafbfc; }
+  .card .summary { font-size: 14px; margin-bottom: 8px; }
+  .card .meta { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+  .type { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+  .type.Story { background: var(--green); } .type.Bug { background: #c9372c; } .type.Task { background: var(--blue); }
+  .badge { margin-left: auto; font-size: 11px; padding: 1px 6px; border-radius: 3px; background: #e9f2ff; color: var(--blue); }
+  .badge.run { background: #f3f0ff; color: var(--purple); }
+  .col[data-status="In Testing"] { background: #f3f0ff; }
+
+  .drawer { position: fixed; top: 0; right: 0; height: 100vh; width: min(560px, 100vw); background: var(--panel); border-left: 1px solid var(--line); box-shadow: -8px 0 24px rgba(9,30,66,.12); transform: translateX(100%); transition: transform .18s ease; display: flex; flex-direction: column; }
+  .drawer.open { transform: none; }
+  .drawer .top { padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; gap: 10px; align-items: center; }
+  .drawer .top .key { color: var(--muted); font-size: 13px; }
+  .drawer .top .close { margin-left: auto; border: none; background: none; font-size: 22px; cursor: pointer; color: var(--muted); }
+  .drawer .body { padding: 16px 20px; overflow-y: auto; flex: 1; }
+  .drawer h3 { margin: 0 0 12px; font-size: 20px; }
+  .drawer h4 { font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 20px 0 8px; letter-spacing: .04em; }
+  .drawer select { font: inherit; padding: 6px 8px; border-radius: 4px; border: 1px solid var(--line); }
+  .desc, .comment .text { white-space: pre-wrap; font-size: 14px; line-height: 1.5; }
+  .comment { border-top: 1px solid var(--line); padding: 10px 0; }
+  .comment .who { font-size: 13px; font-weight: 600; } .comment .when { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: 6px; }
+  .comment.agent .who { color: var(--purple); }
+  .comment img { max-width: 100%; border: 1px solid var(--line); border-radius: 4px; margin-top: 6px; }
+  code { background: #f1f2f4; padding: 1px 4px; border-radius: 3px; font-size: 13px; }
+  textarea { width: 100%; min-height: 70px; font: inherit; font-size: 14px; padding: 8px; border: 1px solid var(--line); border-radius: 4px; }
+  .add-comment button { margin-top: 6px; font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 4px; border: none; background: var(--blue); color: #fff; cursor: pointer; }
+  .hint { color: var(--muted); font-size: 13px; padding: 0 24px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>QA board <span class="sub">Mock Jira · project QA</span></h1>
+  <button id="reset" title="Restore the seed tickets">Reset board</button>
+</header>
+<p class="hint">Drag a card to <b>In Testing</b> (or change its status in the details panel) to trigger the AI QA agent.</p>
+<main class="board" id="board"></main>
+
+<aside class="drawer" id="drawer" aria-label="Issue details">
+  <div class="top">
+    <span class="type" id="d-type"></span>
+    <span class="key" id="d-key"></span>
+    <select id="d-status" aria-label="Status"></select>
+    <button class="close" id="d-close" aria-label="Close">×</button>
+  </div>
+  <div class="body">
+    <h3 id="d-summary"></h3>
+    <h4>Description</h4>
+    <div class="desc" id="d-desc"></div>
+    <h4>Activity</h4>
+    <div id="d-comments"></div>
+    <form class="add-comment" id="d-form">
+      <textarea id="d-text" placeholder="Add a comment…"></textarea>
+      <button type="submit">Save</button>
+    </form>
+  </div>
+</aside>
+
+<script>
+const API = "/rest/api/3";
+let state = { columns: [], transitions: [], issues: [] };
+let openKey = null;
+let dragging = false; // don't re-render the board under an in-flight drag
+
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+// Tiny markdown subset for comments: images, **bold**, `code`.
+const md = (s) => esc(s)
+  .replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, '<img alt="$1" src="$2">')
+  .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+  .replace(/`([^`]+)`/g, "<code>$1</code>");
+const ago = (iso) => new Date(iso).toLocaleString();
+
+async function load() {
+  state = await (await fetch("/api/board")).json();
+  render();
+  if (openKey) renderDrawer(false);
+}
+
+function render() {
+  const board = document.getElementById("board");
+  board.innerHTML = state.columns.map((col) => {
+    const cards = state.issues.filter((i) => i.fields.status.name === col);
+    return `<section class="col" data-status="${esc(col)}">
+      <h2><span>${esc(col)}</span><span>${cards.length}</span></h2>
+      ${cards.map((i) => `
+        <article class="card" draggable="true" data-key="${i.key}">
+          <div class="summary">${esc(i.fields.summary)}</div>
+          <div class="meta"><span class="type ${i.fields.issuetype.name}"></span>${i.key}
+            ${i.fields.comment.total ? `<span class="badge">${i.fields.comment.total} 💬</span>` : ""}
+          </div>
+        </article>`).join("")}
+    </section>`;
+  }).join("");
+
+  board.querySelectorAll(".card").forEach((el) => {
+    el.addEventListener("click", () => openDrawer(el.dataset.key));
+    el.addEventListener("dragstart", (e) => { dragging = true; e.dataTransfer.setData("text/plain", el.dataset.key); });
+    el.addEventListener("dragend", () => { dragging = false; });
+  });
+  board.querySelectorAll(".col").forEach((col) => {
+    col.addEventListener("dragover", (e) => { e.preventDefault(); col.classList.add("drop"); });
+    col.addEventListener("dragleave", () => col.classList.remove("drop"));
+    col.addEventListener("drop", (e) => {
+      e.preventDefault(); col.classList.remove("drop");
+      moveTo(e.dataTransfer.getData("text/plain"), col.dataset.status);
+    });
+  });
+}
+
+async function moveTo(key, statusName) {
+  const t = state.transitions.find((t) => t.to.name === statusName);
+  const issue = state.issues.find((i) => i.key === key);
+  if (!t || !issue || issue.fields.status.name === statusName) return;
+  await fetch(`${API}/issue/${key}/transitions`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ transition: { id: t.id } }),
+  });
+  load();
+}
+
+function openDrawer(key) { openKey = key; renderDrawer(true); document.getElementById("drawer").classList.add("open"); }
+function closeDrawer() { openKey = null; document.getElementById("drawer").classList.remove("open"); }
+
+function renderDrawer(full) {
+  const i = state.issues.find((x) => x.key === openKey);
+  if (!i) return closeDrawer();
+  const sel = document.getElementById("d-status");
+  if (full || document.activeElement !== sel) {
+    sel.innerHTML = state.columns.map((c) => `<option ${c === i.fields.status.name ? "selected" : ""}>${esc(c)}</option>`).join("");
+  }
+  document.getElementById("d-type").className = `type ${i.fields.issuetype.name}`;
+  document.getElementById("d-key").textContent = i.key;
+  document.getElementById("d-summary").textContent = i.fields.summary;
+  document.getElementById("d-desc").textContent = i.fields.description || "No description.";
+  const comments = i.fields.comment.comments;
+  document.getElementById("d-comments").innerHTML = comments.length
+    ? comments.map((c) => `<div class="comment ${c.author.displayName === "AI QA Agent" ? "agent" : ""}">
+        <div class="who">${esc(c.author.displayName)}<span class="when">${ago(c.created)}</span></div>
+        <div class="text">${md(c.body)}</div></div>`).join("")
+    : `<p class="hint" style="padding:0">No activity yet.</p>`;
+}
+
+document.getElementById("d-status").addEventListener("change", (e) => moveTo(openKey, e.target.value));
+document.getElementById("d-close").addEventListener("click", closeDrawer);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
+document.getElementById("d-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const ta = document.getElementById("d-text");
+  if (!ta.value.trim()) return;
+  await fetch(`${API}/issue/${openKey}/comment`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body: ta.value }) });
+  ta.value = ""; load();
+});
+document.getElementById("reset").addEventListener("click", async () => {
+  if (!confirm("Reset the board to the seed tickets?")) return;
+  await fetch("/api/reset", { method: "POST" }); closeDrawer(); load();
+});
+
+load();
+setInterval(() => { if (!dragging) load(); }, 2000); // pick up the agent's comments and status changes
+</script>
+</body>
+</html>

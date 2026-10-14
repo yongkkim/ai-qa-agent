@@ -1,0 +1,23 @@
+{
+  "name": "ai-qa-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Model-agnostic AI QA agent that verifies features when a (mock) Jira ticket moves to In Testing",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n app,jira,orch -c cyan,magenta,yellow \"npm run dev -w sample-app\" \"npm run dev -w mock-jira\" \"npm run dev -w orchestrator\"",
+    "dev:buggy": "concurrently -n app,jira,orch -c cyan,magenta,yellow \"npm run dev:buggy -w sample-app\" \"npm run dev -w mock-jira\" \"npm run dev -w orchestrator\"",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "jira:reset": "npm run reset -w mock-jira"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
