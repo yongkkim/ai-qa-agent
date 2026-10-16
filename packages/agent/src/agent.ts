@@ -265,7 +265,8 @@ export async function runAgent(ticket: TicketUnderTest, opts: AgentOptions): Pro
     }
 
     const screenshot = `${target.id}.png`;
-    await browser.screenshot(join(runDir, screenshot)).catch(() => {});
+    // Evidence: the whole page, so a counter or message below the fold is in the bug report.
+    await browser.screenshot(join(runDir, screenshot), { fullPage: true }).catch(() => {});
     Object.assign(target, {
       sameDefectAs,
       status,
@@ -350,7 +351,8 @@ export async function runAgent(ticket: TicketUnderTest, opts: AgentOptions): Pro
         let stepShot: string | undefined = result.screenshot;
         if (ACTION_TOOLS.has(call.name) && result.ok && opts.stepScreenshots !== false) {
           stepShot = `step-${String(n).padStart(2, "0")}.png`;
-          await browser.screenshot(join(runDir, stepShot)).catch(() => (stepShot = undefined));
+          // Step timeline: the visible window only. A full-page capture after every action makes the page jump in a headed browser.
+          await browser.screenshot(join(runDir, stepShot), { fullPage: false }).catch(() => (stepShot = undefined));
         }
         // Only re-read the page after the last call in a batch: re-reading regenerates refs,
         // which would make later calls in the same batch point at the wrong elements.
