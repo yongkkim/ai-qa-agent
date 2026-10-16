@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ScriptedProvider, type ScriptStep } from "@ai-qa/llm";
-import { computeVerdict, isGrounded, pruneOldSnapshots, runAgent } from "../src/agent.js";
+import { buildDefectReview, computeVerdict, isGrounded, pruneOldSnapshots, runAgent } from "../src/agent.js";
 import { PAGE_MARKER } from "../src/prompts.js";
 import type { TicketUnderTest } from "../src/types.js";
 import { JsdomDriver } from "./support/jsdom-driver.js";
@@ -295,6 +295,59 @@ describe("same_defect_as (one bug per defect)", () => {
     const { report } = await run("normal", ["A", "B", "C"], script);
     assert.match(refused, /same_defect_as must name an earlier criterion that was recorded as fail/);
     assert.deepEqual(report.criteria.map((c) => c.sameDefectAs), [undefined, "AC1", "AC1"]);
+  });
+});
+
+describe("defect review before finishing", () => {
+  const ACS = ['The footer shows "<N> items left", where N is the number of NOT completed todos.', 'Use the singular form "1 item left" when exactly one todo is active.'];
+  // What Gemini actually did in a real run on the counter bug: AC1 "passed" with two active todos
+  // (a setup in which the bug is invisible), then AC2 exposed the bug.
+  const realRun: ScriptStep[] = [
+    { tool: "plan_test", args: { criterion: "AC1", how_to_test: "Add two todos and check the footer", expected_text: "2 items left" } },
+    addTodo("Buy milk"),
+    addTodo("Walk dog"),
+    { tool: "record_result", args: { criterion: "AC1", status: "pass", observed_text: "2 items left" } },
+    plan("AC2", "1 item left"),
+    onPage("click", (p) => ({ ref: ref(p, 'checkbox "Buy milk"') })),
+    { tool: "record_result", args: { criterion: "AC2", status: "fail", observed_text: "2 items left", expected: "1 item left", actual: "2 items left" } },
+  ];
+
+  it("sends the agent back to re-test a pass that could not have revealed the defect it found", async () => {
+    let review = "";
+    const script: ScriptStep[] = [
+      ...realRun,
+      { tool: "finish", args: { summary: "first try" } },
+      (req) => {
+        review = lastToolResult(req);
+        return { tool: "plan_test", args: { criterion: "AC1", how_to_test: "2 todos, 1 completed", expected_text: "1 item left" } };
+      },
+      { tool: "record_result", args: { criterion: "AC1", status: "fail", observed_text: "2 items left", expected: "1 item left", actual: "2 items left", same_defect_as: "AC2" } },
+      { tool: "finish", args: { summary: "done" } },
+    ];
+    const { report } = await run("buggy", ACS, script);
+    assert.match(review, /review your passes/);
+    assert.match(review, /Defects found:\n- AC2: expected 1 item left; actual 2 items left/);
+    assert.match(review, /- AC1 .*checked by "Add two todos and check the footer", expected "2 items left"/);
+    const ac1 = report.criteria[0];
+    assert.equal(ac1.status, "fail");
+    assert.equal(ac1.retested, true);
+    assert.deepEqual(ac1.oracle?.revised, [], "a re-test is not flagged as a suspicious change of expectation");
+    assert.equal(ac1.sameDefectAs, "AC2");
+    assert.equal(report.verdict, "failed");
+  });
+
+  it("asks only once, and keeps passes the agent confirms", async () => {
+    const { report } = await run("buggy", ACS, [...realRun, { tool: "finish", args: { summary: "a" } }, { tool: "finish", args: { summary: "b" } }]);
+    assert.equal(report.summary, "b");
+    assert.equal(report.criteria[0].status, "pass");
+    assert.equal(report.criteria[0].retested, undefined);
+  });
+
+  it("has nothing to review when there are no failures or no passes", () => {
+    const c = (id: string, status: "pass" | "fail") => ({ id, text: id, status });
+    assert.equal(buildDefectReview([c("AC1", "pass"), c("AC2", "pass")]), undefined);
+    assert.equal(buildDefectReview([c("AC1", "fail"), c("AC2", "fail")]), undefined);
+    assert.ok(buildDefectReview([c("AC1", "pass"), c("AC2", "fail")]));
   });
 });
 

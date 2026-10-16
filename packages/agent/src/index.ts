@@ -1,5 +1,5 @@
 export * from "./types.js";
-export { runAgent, computeVerdict, isGrounded, pruneOldSnapshots, type AgentOptions } from "./agent.js";
+export { runAgent, computeVerdict, isGrounded, pruneOldSnapshots, buildDefectReview, type AgentOptions } from "./agent.js";
 export { AGENT_TOOLS } from "./tools.js";
 export { SYSTEM_PROMPT } from "./prompts.js";
 export { extractAcceptanceCriteria } from "./criteria.js";

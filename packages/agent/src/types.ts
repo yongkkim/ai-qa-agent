@@ -26,6 +26,8 @@ export interface CriterionResult {
   grounded?: boolean;
   /** How the agent said it would test this (from plan_test). */
   howTested?: string;
+  /** Re-tested during the end-of-run defect review (its earlier check was too weak to reveal a defect found later). */
+  retested?: boolean;
   /** For a failure caused by the same defect as an earlier failed criterion: that criterion's id (used to file one bug per defect). */
   sameDefectAs?: string;
   /** The test oracle declared before testing, and whether the page confirmed it when the verdict was recorded. */

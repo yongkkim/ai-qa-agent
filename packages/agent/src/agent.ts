@@ -74,6 +74,8 @@ export async function runAgent(ticket: TicketUnderTest, opts: AgentOptions): Pro
   let summary = "";
   let finished = false;
   let finishAttempts = 0;
+  /** Set once the agent has been asked to review its passes against the defects it found. */
+  let reviewRequested = false;
   let error: string | undefined;
   let lastPage = "";
   let snapshotsThisTurn = 0;
@@ -153,6 +155,14 @@ export async function runAgent(ticket: TicketUnderTest, opts: AgentOptions): Pro
         if (missing.length && finishAttempts++ < 1) {
           return { ok: false, outcome: `not finished: no verdict yet for ${missing.join(", ")}. Test them, or record them as blocked with a reason.` };
         }
+        // Defect review: a defect found in one criterion often also breaks a criterion that was
+        // "passed" earlier with a setup too weak to reveal it. Before finishing, make the agent
+        // revisit its passes in the light of what it found, like a human tester would.
+        const review = !reviewRequested ? buildDefectReview(criteria) : undefined;
+        if (review) {
+          reviewRequested = true;
+          return { ok: false, outcome: "not finished yet: review your passes against the defects you found.", detail: review };
+        }
         finished = true;
         summary = String(a.summary ?? "").trim();
         return { ok: true, outcome: "session finished" };
@@ -169,11 +179,15 @@ export async function runAgent(ticket: TicketUnderTest, opts: AgentOptions): Pro
     const expectedText = String(a.expected_text ?? "").trim();
     if (expectedText.length < 2) return { ok: false, outcome: "expected_text is required: the exact text the page must show if the feature works." };
     const prev = plans.get(target.id);
+    // After the defect review a new plan is a deliberate re-test with a stronger setup, not a
+    // changed expectation, so it starts a clean oracle and marks the criterion as re-tested.
+    const retest = reviewRequested && target.status !== "not_tested";
+    if (retest) target.retested = true;
     plans.set(target.id, {
       howToTest: String(a.how_to_test ?? "").trim(),
       expectedText,
       mustNotAppear: optStr(a.must_not_appear),
-      previous: prev && prev.expectedText !== expectedText ? [...prev.previous, prev.expectedText] : (prev?.previous ?? []),
+      previous: retest ? [] : prev && prev.expectedText !== expectedText ? [...prev.previous, prev.expectedText] : (prev?.previous ?? []),
     });
     return {
       ok: true,
@@ -382,6 +396,32 @@ export async function runAgent(ticket: TicketUnderTest, opts: AgentOptions): Pro
   writeFileSync(join(runDir, "report.json"), JSON.stringify(report, null, 2));
   log(`■ ${ticket.key}: ${verdict.toUpperCase()} (${steps.length} steps, ${usage.llmCalls} LLM calls)`);
   return report;
+}
+
+/**
+ * The message that sends the agent back to re-examine its passes once it has found defects.
+ * Generic on purpose: it lists what failed and how each pass was checked, and asks whether that
+ * check could have revealed the failures. Returns undefined when there is nothing to review.
+ */
+export function buildDefectReview(criteria: CriterionResult[]): string | undefined {
+  const failed = criteria.filter((c) => c.status === "fail");
+  const passed = criteria.filter((c) => c.status === "pass");
+  if (!failed.length || !passed.length) return undefined;
+  const fails = failed
+    .map((c) => `- ${c.id}: expected ${c.expected ?? "(see criterion)"}; actual ${c.actual ?? c.observed ?? "(see evidence)"}`)
+    .join("\n");
+  const passes = passed
+    .map((c) => `- ${c.id} "${c.text}": checked by ${c.howTested ? `"${c.howTested}"` : "(no description)"}, expected ${JSON.stringify(c.oracle?.expected ?? c.observed ?? "")}`)
+    .join("\n");
+  return `Before finishing, review your passes in the light of the defects you found.
+
+Defects found:
+${fails}
+
+Criteria you passed, and how:
+${passes}
+
+For each pass, ask: if the defect(s) above also affected this criterion, would the way I tested it have shown that? If the setup could not have revealed it (for example it never created the state in which the defect appears), re-test that criterion now with a setup that would: call plan_test again, perform the steps, and record_result again (use same_defect_as if it fails for the same reason). If your check would have caught it, keep the pass. Then call finish.`;
 }
 
 /** The run's verdict is computed from per-criterion results, never taken from the model's say-so. */

@@ -48,7 +48,7 @@ export function formatResultComment(report: AgentReport, runLabel: string, artif
   lines.push("");
 
   for (const c of report.criteria) {
-    lines.push(`${ICON[c.status]} **${c.id}** ${c.text}`);
+    lines.push(`${ICON[c.status]} **${c.id}** ${c.text}${c.retested ? " · 🔁 re-tested after defect review" : ""}`);
     if (c.status === "pass") {
       if (c.oracle?.held) lines.push(`    Checked: expected \`${c.oracle.expected}\` ✓ on page${c.howTested ? ` (${c.howTested})` : ""}`);
       else if (c.observed) lines.push(`    Evidence: \`${c.observed}\``);
