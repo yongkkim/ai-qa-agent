@@ -32,6 +32,7 @@ h1 { margin: 0 0 16px; font-size: 28px; letter-spacing: -0.02em; }
 .add { display: flex; gap: 8px; }
 .add input {
   flex: 1;
+  min-width: 0;
   padding: 10px 12px;
   font-size: 16px;
   border: 1px solid var(--line);
@@ -62,7 +63,11 @@ button {
   padding: 10px 4px;
   border-bottom: 1px solid var(--line);
 }
-.todo-list label { display: flex; align-items: center; gap: 10px; flex: 1; cursor: pointer; }
+/* min-width: 0 lets the label shrink inside the flex row, and overflow-wrap breaks long
+   unbroken text (e.g. an 80-character "aaaa…" todo) instead of pushing past the card. */
+.todo-list label { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; cursor: pointer; }
+.todo-list .text { min-width: 0; overflow-wrap: anywhere; }
+.delete { flex-shrink: 0; }
 .todo-list li.done .text { text-decoration: line-through; color: var(--muted); }
 .delete { border: none; font-size: 20px; line-height: 1; color: var(--muted); padding: 2px 8px; }
 
