@@ -12,11 +12,15 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; min-height: 100vh; background: var(--bg); }
+/* Always reserve the scrollbar's space so the layout doesn't jump sideways when the list grows past the window. */
+html { scrollbar-gutter: stable; }
+/* Spacing lives in body padding: a top margin on .app would collapse through body and make the page 100vh + 48px tall,
+   i.e. scrollable even when it's nearly empty. */
+body { margin: 0; min-height: 100vh; padding: 48px 16px; background: var(--bg); }
 
 .app {
   max-width: 520px;
-  margin: 48px auto;
+  margin: 0 auto;
   padding: 24px;
   background: var(--card);
   border: 1px solid var(--line);
