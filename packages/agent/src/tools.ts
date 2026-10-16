@@ -73,6 +73,11 @@ export const AGENT_TOOLS: ToolDefinition[] = [
         actual: { type: "string", description: "What actually happened." },
         steps_to_reproduce: { type: "string", description: "Short numbered steps (required for fail)." },
         notes: { type: "string", description: "Anything else worth knowing (required for blocked)." },
+        same_defect_as: {
+          type: "string",
+          description:
+            'For a fail caused by the same underlying defect as an earlier failed criterion (the same wrong behaviour), that criterion\'s id, e.g. "AC1". Leave empty for a new, separate defect.',
+        },
       },
       required: ["criterion", "status", "observed_text"],
     },

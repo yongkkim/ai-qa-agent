@@ -52,7 +52,7 @@ Bugs filed: QA-104                     → ticket moved back to "In Progress"
 1. **Trigger.** Moving a card to *In Testing* makes mock Jira POST a Jira-format webhook to the orchestrator. Only that status triggers a run; duplicate webhooks are ignored; runs execute one at a time.
 2. **Plan.** The orchestrator fetches the ticket, extracts the numbered list under *Acceptance Criteria*, and finds the app URL (`Test URL:` line in the ticket, or `APP_UNDER_TEST_URL`).
 3. **Test.** The agent loops: **observe** the page → **decide** the next tool call with the LLM → **act** in a real browser → observe the result. It records a verdict per criterion as it goes.
-4. **Report.** The result comment, `ai-qa-*` labels, a status transition (pass → *Done*, fail → *In Progress*) and one bug ticket per failed criterion are written back through the Jira API.
+4. **Report.** The result comment, `ai-qa-*` labels, a status transition (pass → *Done*, fail → *In Progress*) and bug tickets (one per defect by default) are written back through the Jira API.
 
 ### What the model sees
 
@@ -211,7 +211,7 @@ All settings are in `.env.example` with comments. The main ones:
 | `AGENT_BROWSER_CHANNEL` / `AGENT_BROWSER_PATH` | | Use installed Chrome/Edge or a specific Chromium instead of Playwright's |
 | `QA_TRIGGER_STATUS` | `In Testing` | Status that starts a run |
 | `QA_STATUS_ON_PASS` / `QA_STATUS_ON_FAIL` | `Done` / `In Progress` | Where tickets go afterwards |
-| `QA_CREATE_BUG_TICKETS` | `true` | One bug per failed criterion |
+| `QA_BUG_TICKETS` | `per-defect` | `per-defect`: one bug per underlying defect · `per-criterion`: one bug per failed criterion · `off`: no bug tickets |
 | `JIRA_BASE_URL` (+ `JIRA_EMAIL`, `JIRA_API_TOKEN`) | `http://localhost:4000` | Point at a real Jira site |
 
 ## Using a real Jira

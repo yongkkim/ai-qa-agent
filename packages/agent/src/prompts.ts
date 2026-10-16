@@ -27,6 +27,7 @@ The app may keep data between steps and across reloads; create the items each ch
 ## Verdicts
 - pass: you performed the check and the page shows your planned expected_text. The code verifies this against the page; a PASS the page contradicts is rejected.
 - fail: the page shows behaviour that contradicts the AC (e.g. it shows a different number or message than your expected_text). Give expected vs actual and short steps to reproduce. A mismatch with your plan is a FAIL, not a pass with a caveat.
+  If this failure is the same underlying defect as a criterion you already failed (the same wrong behaviour showing up again), set same_defect_as to that criterion's id so it is reported as one bug, not several. Different wrong behaviours are separate defects.
 - blocked: you could not check it (missing element, unclear requirement, app error). Say why in notes.
 - observed_text must be copied exactly from a snapshot you were shown (for example a counter text, an error message, or an item's text). It is verified against the pages you saw; evidence that was never on the page is rejected.
 - Judge only against the ticket's acceptance criteria. Never guess: if unsure, take another action to confirm.

@@ -23,7 +23,22 @@ export const JIRA_API_TOKEN = env.JIRA_API_TOKEN;
 export const TRIGGER_STATUS = env.QA_TRIGGER_STATUS || "In Testing";
 export const STATUS_ON_PASS = env.QA_STATUS_ON_PASS || "Done";
 export const STATUS_ON_FAIL = env.QA_STATUS_ON_FAIL || "In Progress";
-export const CREATE_BUG_TICKETS = bool(env.QA_CREATE_BUG_TICKETS, true);
+/**
+ * How bug tickets are filed for failed criteria:
+ *   per-defect    one bug per underlying defect (criteria the agent marks as the same defect are grouped)
+ *   per-criterion one bug per failed acceptance criterion
+ *   off           no bug tickets; failures are only reported on the original ticket
+ * (QA_CREATE_BUG_TICKETS=false from older .env files still means "off".)
+ */
+export const BUG_TICKET_MODES = ["per-defect", "per-criterion", "off"] as const;
+export type BugTicketMode = (typeof BUG_TICKET_MODES)[number];
+export const BUG_TICKET_MODE: BugTicketMode = (() => {
+  const raw = (env.QA_BUG_TICKETS ?? "").trim().toLowerCase();
+  if (!raw) return bool(env.QA_CREATE_BUG_TICKETS, true) ? "per-defect" : "off";
+  if ((BUG_TICKET_MODES as readonly string[]).includes(raw)) return raw as BugTicketMode;
+  console.warn(`[orchestrator] QA_BUG_TICKETS="${raw}" is not one of ${BUG_TICKET_MODES.join(", ")}; using per-defect`);
+  return "per-defect";
+})();
 
 /** Fallback when a ticket has no "Test URL:" line. */
 export const APP_UNDER_TEST_URL = env.APP_UNDER_TEST_URL || "http://localhost:5173";

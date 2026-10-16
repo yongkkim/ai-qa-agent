@@ -35,6 +35,7 @@ let queue: RunQueue;
 /** Swapped per test: which app build the "browser" opens and which model answers. */
 let appMode: "normal" | "buggy" = "normal";
 let makeLLM: () => LLMProvider;
+let bugMode: "per-defect" | "per-criterion" | "off" = "per-defect";
 
 /** A scripted tester for the "whitespace-only todo is rejected" criterion. Decides from what the page shows. */
 const emptyInputTester = () =>
@@ -70,7 +71,9 @@ before(async () => {
       defaultAppUrl: "http://localhost:5173/",
       statusOnPass: "Done",
       statusOnFail: "In Progress",
-      createBugTickets: true,
+      get bugTicketMode() {
+        return bugMode;
+      },
       agent: { maxSteps: 20, timeoutMs: 60_000, stepScreenshots: false },
       log: () => {},
     })(run),
@@ -173,5 +176,59 @@ describe("In Testing → AI QA → results on the ticket", () => {
     await jira.transitionTo(key, "Done");
     await new Promise((r) => setTimeout(r, 150));
     assert.equal(queue.list().filter((r) => r.issueKey === key).length, 0);
+  });
+});
+
+describe("bug tickets: one per defect, per criterion, or none", () => {
+  /** A tester that fails three criteria: AC2 is the same defect as AC1, AC3 is a different one. */
+  const threeFailures = () =>
+    new ScriptedProvider([
+      plan("AC1", "1 item left"),
+      { tool: "record_result", args: { criterion: "AC1", status: "fail", observed_text: "0 items left", expected: "1 item left", actual: "0 items left" } },
+      plan("AC2", "1 item left"),
+      { tool: "record_result", args: { criterion: "AC2", status: "fail", observed_text: "0 items left", same_defect_as: "AC1", expected: "1 item left", actual: "0 items left" } },
+      plan("AC3", "Clear completed (1)"),
+      { tool: "record_result", args: { criterion: "AC3", status: "fail", observed_text: "Nothing here yet.", expected: "button shown", actual: "no button" } },
+      { tool: "finish", args: { summary: "three failures, two defects" } },
+    ] satisfies ScriptStep[]);
+
+  async function runWith(mode: typeof bugMode) {
+    appMode = "normal";
+    makeLLM = threeFailures;
+    bugMode = mode;
+    const { key } = await jira.createIssue({
+      summary: "Counter",
+      issuetype: "Story",
+      description: "Acceptance Criteria:\n1. Counter A\n2. Counter B\n3. Clear button",
+    });
+    await jira.transitionTo(key, "In Testing");
+    await waitForRun(key);
+    const search = (await (await fetch(`${jiraUrl}/rest/api/3/search?jql=${encodeURIComponent(`labels = parent-${key}`)}`)).json()) as any;
+    const parent = await issue(key);
+    return { key, bugs: search.issues as any[], parent };
+  }
+
+  it("per-defect (default): criteria with the same defect share one bug", async () => {
+    const { key, bugs, parent } = await runWith("per-defect");
+    assert.equal(bugs.length, 2);
+    const grouped = bugs.find((b) => b.fields.summary.startsWith(`[${key} AC1, AC2]`));
+    assert.ok(grouped, "AC1 and AC2 are filed together");
+    assert.match(grouped.fields.description, /The same defect also breaks:\*\*\n- \*\*AC2\*\* Counter B/);
+    assert.ok(bugs.some((b) => b.fields.summary.startsWith(`[${key} AC3]`)));
+    const result = parent.fields.comment.comments.at(-1).body as string;
+    assert.match(result, /Same defect as AC1\./);
+    assert.match(result, /Bugs filed:\*\* QA-\d+ \(AC1, AC2\), QA-\d+ \(AC3\)/);
+  });
+
+  it("per-criterion: one bug per failed criterion", async () => {
+    const { bugs } = await runWith("per-criterion");
+    assert.equal(bugs.length, 3);
+  });
+
+  it("off: no bug tickets, but the ticket still fails and goes back to In Progress", async () => {
+    const { bugs, parent } = await runWith("off");
+    assert.equal(bugs.length, 0);
+    assert.equal(parent.fields.status.name, "In Progress");
+    assert.doesNotMatch(parent.fields.comment.comments.at(-1).body, /Bugs filed/);
   });
 });

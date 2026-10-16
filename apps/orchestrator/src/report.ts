@@ -1,4 +1,5 @@
 import type { AgentReport, CriterionResult } from "@ai-qa/agent";
+import type { BugTicketMode } from "./env.js";
 
 const ICON: Record<CriterionResult["status"], string> = { pass: "✅", fail: "❌", blocked: "⚠️", not_tested: "⏭️" };
 const VERDICT: Record<AgentReport["verdict"], string> = {
@@ -61,6 +62,7 @@ export function formatResultComment(report: AgentReport, runLabel: string, artif
       if (c.observed) lines.push(`    Observed on page: \`${c.observed}\``);
       if (c.stepsToReproduce) lines.push(`    Steps to reproduce: ${c.stepsToReproduce.replace(/\n+/g, " ")}`);
     }
+    if (c.status === "fail" && c.sameDefectAs) lines.push(`    Same defect as ${c.sameDefectAs}.`);
     if (c.notes && c.status !== "pass") lines.push(`    Notes: ${c.notes}`);
     if (c.grounded === false) lines.push(`    ⚠️ The agent's evidence could not be verified on the page; please double-check this one.`);
     if ((c.status === "fail" || c.status === "blocked") && c.screenshot) lines.push(`    ![${c.id} screenshot](${artifactsUrl}/${c.screenshot})`);
@@ -84,16 +86,37 @@ export function modelLabel(report: AgentReport): string {
 }
 
 /**
+ * Splits failed criteria into bug tickets according to the mode. In per-defect mode, criteria
+ * the agent linked with same_defect_as land in one group, so one defect means one bug.
+ */
+export function groupFailures(criteria: CriterionResult[], mode: BugTicketMode): CriterionResult[][] {
+  const failed = criteria.filter((c) => c.status === "fail");
+  if (mode === "off") return [];
+  if (mode === "per-criterion") return failed.map((c) => [c]);
+  const groups = new Map<string, CriterionResult[]>();
+  for (const c of failed) {
+    const root = c.sameDefectAs && failed.some((f) => f.id === c.sameDefectAs) ? c.sameDefectAs : c.id;
+    const group = groups.get(root);
+    if (group) group.push(c);
+    else groups.set(root, [c]);
+  }
+  return [...groups.values()];
+}
+
+/**
  * Bug ticket body, laid out like a hand-written bug report: what's wrong, how to reproduce it,
  * the evidence, and finally the environment (including which AI model made the call).
+ * A group is one defect; its first criterion carries the main repro, the others are listed as also affected.
  */
 export function formatBugDescription(
   parentKey: string,
-  c: CriterionResult,
+  group: CriterionResult | CriterionResult[],
   report: AgentReport,
   artifactsUrl: string,
   env: { appUrl?: string; runLabel?: string } = {},
 ): string {
+  const all = Array.isArray(group) ? group : [group];
+  const [c, ...others] = all;
   const lines = [
     `Found by the AI QA agent while testing ${parentKey}.`,
     "",
@@ -107,7 +130,19 @@ export function formatBugDescription(
     c.stepsToReproduce ?? "(not provided — see the run report)",
     "",
   ];
-  if (c.screenshot) lines.push("**Evidence:**", `![${c.id} screenshot](${artifactsUrl}/${c.screenshot})`, "");
+  if (others.length) {
+    lines.push("**The same defect also breaks:**");
+    for (const o of others) {
+      lines.push(`- **${o.id}** ${o.text}` + (o.expected || o.actual ? ` (expected: ${o.expected ?? "?"}; actual: ${o.actual ?? "?"})` : ""));
+    }
+    lines.push("");
+  }
+  const shots = all.filter((x) => x.screenshot);
+  if (shots.length) {
+    lines.push("**Evidence:**");
+    for (const x of shots) lines.push(`![${x.id} screenshot](${artifactsUrl}/${x.screenshot})`);
+    lines.push("");
+  }
   lines.push(
     "**Environment**",
     ...(env.appUrl ? [`App: ${env.appUrl}`] : []),

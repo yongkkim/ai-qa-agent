@@ -272,6 +272,32 @@ describe("test oracle (plan_test): a PASS must match what the page shows", () =>
   });
 });
 
+describe("same_defect_as (one bug per defect)", () => {
+  it("links a failure to an earlier failed criterion, and points chains at the first one", async () => {
+    const fail = (criterion: string, same?: string): ScriptStep => ({
+      tool: "record_result",
+      args: { criterion, status: "fail", observed_text: "0 items left", ...(same ? { same_defect_as: same } : {}) },
+    });
+    let refused = "";
+    const script: ScriptStep[] = [
+      plan("AC1", "1 item left"),
+      plan("AC2", "1 item left"),
+      plan("AC3", "1 item left"),
+      fail("AC2", "AC1"), // AC1 has not failed yet: refused
+      (req) => {
+        refused = lastToolResult(req);
+        return fail("AC1");
+      },
+      fail("AC2", "AC1"),
+      fail("AC3", "AC2"), // chained: should point at AC1
+      { tool: "finish", args: { summary: "x" } },
+    ];
+    const { report } = await run("normal", ["A", "B", "C"], script);
+    assert.match(refused, /same_defect_as must name an earlier criterion that was recorded as fail/);
+    assert.deepEqual(report.criteria.map((c) => c.sameDefectAs), [undefined, "AC1", "AC1"]);
+  });
+});
+
 describe("helpers", () => {
   it("isGrounded ignores case, quotes, whitespace and refs", () => {
     const page = 'list "Todo list":\n  [e6] checkbox "Buy milk" (checked)\ntext "1 item left"';

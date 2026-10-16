@@ -237,9 +237,23 @@ export async function runAgent(ticket: TicketUnderTest, opts: AgentOptions): Pro
       }
     }
 
+    // Defect grouping: only accept a link to another criterion that already failed.
+    let sameDefectAs: string | undefined;
+    if (status === "fail" && optStr(a.same_defect_as)) {
+      const other = findCriterion(criteria, a.same_defect_as);
+      if (!other || other.id === target.id || other.status !== "fail") {
+        return {
+          ok: false,
+          outcome: `same_defect_as must name an earlier criterion that was recorded as fail (got "${a.same_defect_as}"). Leave it empty for a separate defect.`,
+        };
+      }
+      sameDefectAs = other.sameDefectAs ?? other.id; // point at the group's first criterion
+    }
+
     const screenshot = `${target.id}.png`;
     await browser.screenshot(join(runDir, screenshot)).catch(() => {});
     Object.assign(target, {
+      sameDefectAs,
       status,
       observed: observed || undefined,
       expected: optStr(a.expected) ?? plan?.expectedText,

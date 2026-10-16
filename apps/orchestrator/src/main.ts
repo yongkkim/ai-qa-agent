@@ -5,7 +5,7 @@ import {
   AGENT,
   APP_UNDER_TEST_URL,
   ARTIFACTS_DIR,
-  CREATE_BUG_TICKETS,
+  BUG_TICKET_MODE,
   JIRA_BASE_URL,
   PORT,
   PUBLIC_URL,
@@ -33,7 +33,7 @@ const runner = createRunner({
   defaultAppUrl: APP_UNDER_TEST_URL,
   statusOnPass: STATUS_ON_PASS,
   statusOnFail: STATUS_ON_FAIL,
-  createBugTickets: CREATE_BUG_TICKETS,
+  bugTicketMode: BUG_TICKET_MODE,
   agent: { maxSteps: AGENT.maxSteps, timeoutMs: AGENT.timeoutMs, stepScreenshots: AGENT.stepScreenshots },
 });
 const queue = new RunQueue(runner);
@@ -41,7 +41,7 @@ const app = createOrchestratorApp({ queue, triggerStatus: TRIGGER_STATUS, artifa
 
 app.listen(PORT, () => {
   console.log(`[orchestrator] listening on ${PUBLIC_URL} (webhook: POST /webhooks/jira)`);
-  console.log(`[orchestrator] Jira: ${JIRA_BASE_URL} · trigger status: "${TRIGGER_STATUS}"`);
+  console.log(`[orchestrator] Jira: ${JIRA_BASE_URL} · trigger status: "${TRIGGER_STATUS}" · bug tickets: ${BUG_TICKET_MODE}`);
   // Surface config problems at startup instead of on the first ticket.
   try {
     const cfg = readLLMConfig();

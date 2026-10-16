@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { AgentReport } from "@ai-qa/agent";
-import { formatBugDescription, formatResultComment, isProviderOutage } from "../src/report.js";
+import { formatBugDescription, formatResultComment, groupFailures, isProviderOutage } from "../src/report.js";
 
 const base: AgentReport = {
   ticketKey: "QA-1",
@@ -39,5 +39,17 @@ describe("result comment", () => {
     assert.match(formatResultComment(report, "r", "u"), /`gemini\/gemini-big → gemini-small`/);
     const c = { id: "AC1", text: "x", status: "fail" as const, screenshot: "AC1.png" };
     assert.match(formatBugDescription("QA-1", c, report, "u"), /Tested by: AI QA agent, model `gemini\/gemini-big → gemini-small`/);
+  });
+});
+
+describe("groupFailures", () => {
+  const c = (id: string, status: "pass" | "fail", sameDefectAs?: string) => ({ id, text: id, status, sameDefectAs });
+  const criteria = [c("AC1", "fail"), c("AC2", "pass"), c("AC3", "fail", "AC1"), c("AC4", "fail")];
+  const ids = (groups: { id: string }[][]) => groups.map((g) => g.map((x) => x.id).join("+"));
+
+  it("groups by defect, keeps separate defects apart, ignores passes", () => {
+    assert.deepEqual(ids(groupFailures(criteria, "per-defect")), ["AC1+AC3", "AC4"]);
+    assert.deepEqual(ids(groupFailures(criteria, "per-criterion")), ["AC1", "AC3", "AC4"]);
+    assert.deepEqual(groupFailures(criteria, "off"), []);
   });
 });

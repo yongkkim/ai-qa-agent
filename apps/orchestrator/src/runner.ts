@@ -3,7 +3,8 @@ import { extractAcceptanceCriteria, runAgent, type AgentReport, type BrowserDriv
 import { LLMConfigError, type LLMProvider } from "@ai-qa/llm";
 import type { JiraClient } from "./jira.js";
 import type { Run } from "./queue.js";
-import { formatBugDescription, formatResultComment } from "./report.js";
+import { formatBugDescription, formatResultComment, groupFailures } from "./report.js";
+import type { BugTicketMode } from "./env.js";
 
 export const LABELS = {
   running: "ai-qa-running",
@@ -25,7 +26,8 @@ export interface RunnerDeps {
   defaultAppUrl: string;
   statusOnPass: string;
   statusOnFail: string;
-  createBugTickets: boolean;
+  /** per-defect | per-criterion | off (see QA_BUG_TICKETS). */
+  bugTicketMode: BugTicketMode;
   agent: { maxSteps: number; timeoutMs: number; stepScreenshots: boolean };
   log?: (line: string) => void;
 }
@@ -107,18 +109,21 @@ export function createRunner(deps: RunnerDeps) {
       await browser?.close();
     }
 
-    // File one bug per failed criterion, so each can be fixed and tracked on its own.
+    // File bug tickets: by default one per underlying defect, so each can be fixed and tracked on its own
+    // without duplicates when one defect breaks several criteria.
     const bugKeys: string[] = [];
-    if (report.verdict === "failed" && deps.createBugTickets) {
-      for (const c of report.criteria.filter((x) => x.status === "fail")) {
+    if (report.verdict === "failed") {
+      for (const group of groupFailures(report.criteria, deps.bugTicketMode)) {
+        const [first] = group;
+        const ids = group.map((c) => c.id).join(", ");
         try {
           const bug = await jira.createIssue({
-            summary: `[${key} ${c.id}] ${c.actual ? truncate(c.actual, 90) : `Fails: ${truncate(c.text, 90)}`}`,
-            description: formatBugDescription(key, c, report, artifactsUrl, { appUrl, runLabel }),
+            summary: `[${key} ${ids}] ${first.actual ? truncate(first.actual, 90) : `Fails: ${truncate(first.text, 90)}`}`,
+            description: formatBugDescription(key, group, report, artifactsUrl, { appUrl, runLabel }),
             issuetype: "Bug",
             labels: ["found-by-ai-qa", `parent-${key}`],
           });
-          bugKeys.push(bug.key);
+          bugKeys.push(`${bug.key} (${ids})`);
         } catch (err) {
           log(`${key}: could not create bug ticket: ${(err as Error).message}`);
         }
