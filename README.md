@@ -224,6 +224,32 @@ The orchestrator talks to Jira only through `apps/orchestrator/src/jira.ts`, whi
 ## Limitations and next steps
 
 - **LLMs are non-deterministic.** The same ticket can take different paths on different runs. The guard rails bound how wrong a run can be, but a flagged or INCOMPLETE result still needs a human. Stronger models make fewer mistakes; small local models struggle with long flows.
+- **A weak test that finds nothing is still the main residual risk.** The guard rails cover three failure modes, each with its own layer:
+
+  | Failure mode | Covered by |
+  |---|---|
+  | The model calls a visible bug a pass | Test oracle: the expected result is declared up front and checked by code against the page |
+  | A pass was checked too weakly, and the defect showed up in another criterion | Defect review before finishing: passes are re-examined against the defects found |
+  | A pass was checked too weakly and **no** criterion failed | Not covered yet (see the design below) |
+
+  In the last case nothing points back at the weak test, so a false pass can still slip through, for example a counter checked only while every item is active, where a wrong formula gives the right number.
 - **Snapshot coverage.** The accessibility snapshot covers standard HTML controls and ARIA roles. Canvas-heavy UIs, iframes and visual-only checks (layout, colours) would need a vision model; the provider interface can be extended with image input.
 - **One run at a time.** Fine for a demo; a team setup would run browser workers in parallel.
-- **Next:** export a passing run as a replayable Playwright test (turning exploratory AI runs into regression tests), an HTML run report with the step timeline, and vision input for visual criteria.
+
+### Next: make every test prove it can fail (designed, not built yet)
+
+Borrowing the idea behind mutation testing, which judges a test by whether it fails when the code is broken: `plan_test` would also require
+
+- `likely_bug`: a plausible way this feature could be implemented wrong, and
+- `if_broken_shows`: what the page would show in that case, with the planned setup.
+
+If `if_broken_shows` equals `expected_text`, the setup cannot tell a working feature from a broken one, and **the code rejects the plan** before any testing: *"working and broken give the same result; choose a setup where they differ."* For the counter example, "2 todos, read the footer" (working: `2 items left`, broken: `2 items left`) is rejected; "3 todos, 1 completed" (`2 items left` vs `3 items left`) is accepted. The Jira comment would then show what each pass was able to catch, e.g. `Would catch: counts completed todos too (would show "3 items left")`, so a reviewer can judge test strength at a glance.
+
+Why it is deferred: it closes the gap in the table above for any app, and costs no human effort (the model writes it, code checks it). But it adds work to every plan, and on small free-tier models that means more rejected plans, more steps and a higher risk of hitting the step limit. It should be measured against the current version before it becomes the default. Its limit is the same as mutation testing's: it only guards against the bugs the model thinks of.
+
+### Other next steps
+
+- Export a passing run as a replayable Playwright test, turning exploratory AI runs into regression tests.
+- An HTML run report with the step timeline and screenshots.
+- Skip a model for a few minutes after it returns 503 (circuit breaker), instead of retrying it on every ticket.
+- Vision input for visual criteria.
