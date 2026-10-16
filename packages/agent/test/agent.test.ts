@@ -336,6 +336,42 @@ describe("defect review before finishing", () => {
     assert.equal(report.verdict, "failed");
   });
 
+  it("pushes back once when the re-test just repeats the check that already passed", async () => {
+    // What happened in a real run: asked to re-test AC1, the model planned the same weak check again.
+    let pushback = "";
+    const script: ScriptStep[] = [
+      ...realRun,
+      { tool: "finish", args: { summary: "first try" } },
+      { tool: "plan_test", args: { criterion: "AC1", how_to_test: "Add 2 todos, ensure both are active", expected_text: "2 items left" } },
+      (req) => {
+        pushback = lastToolResult(req);
+        return { tool: "plan_test", args: { criterion: "AC1", how_to_test: "2 todos, 1 completed", expected_text: "1 item left" } };
+      },
+      { tool: "record_result", args: { criterion: "AC1", status: "fail", observed_text: "2 items left", expected: "1 item left", actual: "2 items left", same_defect_as: "AC2" } },
+      { tool: "finish", args: { summary: "done" } },
+    ];
+    const { report } = await run("buggy", ACS, script);
+    assert.match(pushback, /same result as the check that already passed/);
+    assert.equal(report.criteria[0].status, "fail");
+    assert.equal(report.criteria[0].retested, true);
+  });
+
+  it("accepts the same expected text on the second try (a different setup can give the same text)", async () => {
+    const same = { tool: "plan_test", args: { criterion: "AC1", how_to_test: "3 todos, 1 completed", expected_text: "2 items left" } };
+    const script: ScriptStep[] = [
+      ...realRun,
+      { tool: "finish", args: { summary: "first try" } },
+      same,
+      same,
+      (req) => {
+        assert.match(lastToolResult(req), /planned AC1/);
+        return { tool: "finish", args: { summary: "done" } };
+      },
+    ];
+    const { report } = await run("buggy", ACS, script);
+    assert.equal(report.criteria[0].retested, true);
+  });
+
   it("asks only once, and keeps passes the agent confirms", async () => {
     const { report } = await run("buggy", ACS, [...realRun, { tool: "finish", args: { summary: "a" } }, { tool: "finish", args: { summary: "b" } }]);
     assert.equal(report.summary, "b");

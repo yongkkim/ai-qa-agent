@@ -76,6 +76,7 @@ export async function runAgent(ticket: TicketUnderTest, opts: AgentOptions): Pro
   let finishAttempts = 0;
   /** Set once the agent has been asked to review its passes against the defects it found. */
   let reviewRequested = false;
+  const repeatWarned = new Set<string>();
   let error: string | undefined;
   let lastPage = "";
   let snapshotsThisTurn = 0;
@@ -182,6 +183,19 @@ export async function runAgent(ticket: TicketUnderTest, opts: AgentOptions): Pro
     // After the defect review a new plan is a deliberate re-test with a stronger setup, not a
     // changed expectation, so it starts a clean oracle and marks the criterion as re-tested.
     const retest = reviewRequested && target.status !== "not_tested";
+    // Re-running the check that already passed cannot reveal anything new. Pushed back once; a deliberate
+    // second plan with the same expected text is accepted (a different setup can give the same text).
+    const earlier = target.status === "pass" ? target.oracle?.expected : undefined;
+    if (retest && earlier && sameText(earlier, expectedText) && !repeatWarned.has(target.id)) {
+      repeatWarned.add(target.id);
+      return {
+        ok: false,
+        outcome:
+          `This re-test expects ${JSON.stringify(expectedText)}, the same result as the check that already passed, so it would most likely pass again for the same reason. ` +
+          `Use a setup in which the defect you found would change what ${target.id} shows (include the state in which that defect appeared), then plan the text the page must show if ${target.id} works. ` +
+          `If you are sure your new setup is different and genuinely gives this same text, call plan_test again.`,
+      };
+    }
     if (retest) target.retested = true;
     plans.set(target.id, {
       howToTest: String(a.how_to_test ?? "").trim(),
@@ -423,8 +437,10 @@ ${fails}
 Criteria you passed, and how:
 ${passes}
 
-For each pass, ask: if the defect(s) above also affected this criterion, would the way I tested it have shown that? If the setup could not have revealed it (for example it never created the state in which the defect appears), re-test that criterion now with a setup that would: call plan_test again, perform the steps, and record_result again (use same_defect_as if it fails for the same reason). If your check would have caught it, keep the pass. Then call finish.`;
+For each pass, ask: if the defect(s) above also affected this criterion, would the way I tested it have shown that? If the setup could not have revealed it (for example it never created the state in which the defect appears), re-test that criterion now with a setup that would (a different setup from the one that passed; repeating it gives the same result): call plan_test again, perform the steps, and record_result again (use same_defect_as if it fails for the same reason). If your check would have caught it, keep the pass. Then call finish.`;
 }
+
+const sameText = (a: string, b: string) => a.trim().toLowerCase().replace(/\s+/g, " ") === b.trim().toLowerCase().replace(/\s+/g, " ");
 
 /** The run's verdict is computed from per-criterion results, never taken from the model's say-so. */
 export function computeVerdict(criteria: CriterionResult[]): RunVerdict {
