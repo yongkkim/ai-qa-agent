@@ -19,6 +19,8 @@ interface GeminiResponse {
 }
 
 export interface GeminiOptions {
+  /** Retries on 429/5xx/network errors (default ~1 minute of backoff). */
+  retries?: number;
   apiKey: string;
   model: string;
   baseUrl?: string;
@@ -30,9 +32,11 @@ export class GeminiProvider implements LLMProvider {
   readonly model: string;
   private readonly apiKey: string;
   private readonly baseUrl: string;
+  private readonly retries?: number;
 
   constructor(opts: GeminiOptions) {
     this.model = opts.model;
+    this.retries = opts.retries;
     this.apiKey = opts.apiKey;
     this.baseUrl = (opts.baseUrl || "https://generativelanguage.googleapis.com/v1beta").replace(/\/$/, "");
   }
@@ -40,7 +44,7 @@ export class GeminiProvider implements LLMProvider {
   async chat(req: ChatRequest): Promise<ChatResponse> {
     const body: Record<string, unknown> = {
       systemInstruction: { parts: [{ text: req.system }] },
-      contents: toContents(req.messages),
+      contents: toContents(req.messages, this.model),
       generationConfig: { maxOutputTokens: req.maxTokens ?? 4096 },
     };
     if (req.tools?.length) {
@@ -62,6 +66,7 @@ export class GeminiProvider implements LLMProvider {
       headers: { "x-goog-api-key": this.apiKey },
       body,
       provider: this.provider,
+      retries: this.retries,
     });
 
     const candidate = data.candidates?.[0];
@@ -74,7 +79,9 @@ export class GeminiProvider implements LLMProvider {
           id: p.functionCall.id ?? `gemini-${Date.now()}-${i}`,
           name: p.functionCall.name,
           args: p.functionCall.args ?? {},
-          meta: p.thoughtSignature ? { thoughtSignature: p.thoughtSignature } : undefined,
+          // Remember which model signed it: signatures are only valid for the model that produced them.
+          // (Parallel calls carry a signature only on the first part, so record the model either way.)
+          meta: { signedBy: this.model, ...(p.thoughtSignature ? { thoughtSignature: p.thoughtSignature } : {}) },
         });
       } else if (p.text && !p.thought) {
         text += p.text;
@@ -93,7 +100,14 @@ export class GeminiProvider implements LLMProvider {
   }
 }
 
-function toContents(messages: Message[]): GeminiContent[] {
+/**
+ * Placeholder Google documents for function calls the current model did not produce itself
+ * (e.g. after falling back from another model mid-run). Without any signature Gemini 3 rejects
+ * the request with HTTP 400.
+ */
+export const SKIP_SIGNATURE = "skip_thought_signature_validator";
+
+function toContents(messages: Message[], model: string): GeminiContent[] {
   const out: GeminiContent[] = [];
   const push = (role: GeminiContent["role"], part: GeminiPart) => {
     const last = out[out.length - 1];
@@ -109,7 +123,11 @@ function toContents(messages: Message[]): GeminiContent[] {
       for (const c of m.toolCalls ?? []) {
         const part: GeminiPart = { functionCall: { name: c.name, args: c.args } };
         // Thought signatures must be echoed back or Gemini 3 rejects the follow-up request.
-        if (typeof c.meta?.thoughtSignature === "string") part.thoughtSignature = c.meta.thoughtSignature;
+        if (c.meta?.signedBy === model) {
+          if (typeof c.meta.thoughtSignature === "string") part.thoughtSignature = c.meta.thoughtSignature;
+        } else {
+          part.thoughtSignature = SKIP_SIGNATURE; // produced by another model or provider
+        }
         push("model", part);
       }
       if (!m.content && !m.toolCalls?.length) push("model", { text: "(no response)" });

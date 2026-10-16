@@ -290,6 +290,7 @@ export async function runAgent(ticket: TicketUnderTest, opts: AgentOptions): Pro
     criteria,
     steps,
     model: { provider: llm.provider, model: llm.model },
+    modelsUsed: (llm as { modelsUsed?: string[] }).modelsUsed,
     usage,
     pageIssues,
     startedAt: startedAt.toISOString(),

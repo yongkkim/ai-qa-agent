@@ -18,6 +18,8 @@ interface OAResponse {
 }
 
 export interface OpenAIOptions {
+  /** Retries on 429/5xx/network errors (default ~1 minute of backoff). */
+  retries?: number;
   apiKey?: string;
   model: string;
   /** Any OpenAI-compatible server: OpenAI, Ollama (http://localhost:11434/v1), LM Studio, Groq, OpenRouter, vLLM... */
@@ -36,10 +38,12 @@ export class OpenAICompatibleProvider implements LLMProvider {
   readonly model: string;
   private readonly apiKey?: string;
   private readonly baseUrl: string;
+  private readonly retries?: number;
 
   constructor(opts: OpenAIOptions) {
     this.provider = opts.providerName ?? "openai";
     this.model = opts.model;
+    this.retries = opts.retries;
     this.apiKey = opts.apiKey;
     this.baseUrl = (opts.baseUrl || "https://api.openai.com/v1").replace(/\/$/, "");
   }
@@ -65,6 +69,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
       headers: this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {},
       body,
       provider: this.provider,
+      retries: this.retries,
     });
 
     const choice = data.choices?.[0];

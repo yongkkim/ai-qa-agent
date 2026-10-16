@@ -34,7 +34,7 @@ const reloadTool: ToolDefinition = { name: "reload", description: "Reload", para
 /** A conversation containing a previous tool call and its result. */
 const history: Message[] = [
   { role: "user", content: "Test AC1" },
-  { role: "assistant", content: "", toolCalls: [{ id: "c1", name: "click", args: { ref: "e2" }, meta: { thoughtSignature: "sig-abc" } }] },
+  { role: "assistant", content: "", toolCalls: [{ id: "c1", name: "click", args: { ref: "e2" }, meta: { thoughtSignature: "sig-abc", signedBy: "gemini-test" } }] },
   { role: "tool", toolCallId: "c1", name: "click", content: "OK: clicked" },
 ];
 const req: ChatRequest = { system: "You are QA", messages: history, tools: [clickTool, reloadTool] };
@@ -66,6 +66,23 @@ describe("GeminiProvider", () => {
     assert.deepEqual(res.toolCalls[0].args, { ref: "e5" });
     assert.equal(res.toolCalls[0].meta?.thoughtSignature, "sig-xyz");
     assert.deepEqual(res.usage, { inputTokens: 120, outputTokens: 7 });
+  });
+
+  it("uses a placeholder signature for calls another model or provider made (after a fallback)", async () => {
+    const calls = mockFetch({ json: { candidates: [{ content: { role: "model", parts: [{ text: "ok" }] } }] } });
+    const foreign: Message[] = [
+      { role: "user", content: "go" },
+      { role: "assistant", content: "", toolCalls: [{ id: "a", name: "click", args: {}, meta: { thoughtSignature: "sig-other", signedBy: "gemini-big" } }] },
+      { role: "tool", toolCallId: "a", name: "click", content: "OK" },
+      { role: "assistant", content: "", toolCalls: [{ id: "b", name: "reload", args: {} }] },
+      { role: "tool", toolCallId: "b", name: "reload", content: "OK" },
+    ];
+    await new GeminiProvider({ apiKey: "k", model: "gemini-small" }).chat({ system: "s", messages: foreign });
+    const modelTurns = calls[0].body.contents.filter((c: any) => c.role === "model");
+    assert.deepEqual(
+      modelTurns.map((c: any) => c.parts[0].thoughtSignature),
+      ["skip_thought_signature_validator", "skip_thought_signature_validator"],
+    );
   });
 
   it("ignores thought parts in the text", async () => {
@@ -143,6 +160,15 @@ describe("HTTP handling", () => {
     const res = await new OpenAICompatibleProvider({ apiKey: "k", model: "m" }).chat({ system: "s", messages: [{ role: "user", content: "x" }] });
     assert.equal(calls.length, 2);
     assert.equal(res.text, "ok");
+  });
+
+  it("explains an overloaded provider (503) after retrying", async () => {
+    const calls = mockFetch({ status: 503, json: { error: { message: "high demand" } }, headers: { "retry-after": "0.01" } });
+    await assert.rejects(
+      new GeminiProvider({ apiKey: "k", model: "m", retries: 2 }).chat({ system: "s", messages: [{ role: "user", content: "x" }] }),
+      (e: any) => e.retryable === true && e.status === 503 && /overloaded or temporarily unavailable.*\(after 3 attempts\)/.test(e.message),
+    );
+    assert.equal(calls.length, 3);
   });
 
   it("explains auth errors without retrying", async () => {

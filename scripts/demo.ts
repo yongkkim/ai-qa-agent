@@ -135,6 +135,9 @@ async function main() {
     console.log(`  ${key}  ${color(run.state.toUpperCase().padEnd(10))} ${run.summary ?? ""}`);
     if (run.reportUrl) console.log(`         ${c.dim(run.reportUrl)}`);
   }
+  if (results.some(({ run }) => run.state === "error" || run.state === "incomplete")) {
+    console.log(c.dim("\n  ERROR / INCOMPLETE means the agent could not finish testing (e.g. the AI model was overloaded),\n  not that the feature is broken. Those tickets stay in In Testing; the comment on the ticket says why."));
+  }
   console.log(`\nOpen ${JIRA} to see comments, screenshots and any bug tickets the agent filed.\n`);
 }
 

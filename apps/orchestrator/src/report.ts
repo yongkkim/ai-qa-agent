@@ -5,8 +5,13 @@ const VERDICT: Record<AgentReport["verdict"], string> = {
   passed: "✅ PASSED",
   failed: "❌ FAILED",
   incomplete: "⚠️ INCOMPLETE (needs a human)",
-  error: "💥 ERROR",
+  error: "💥 NOT TESTED (the agent hit an error)",
 };
+
+/** True when the run died because the AI provider was unreachable/overloaded, not because of the product. */
+export function isProviderOutage(report: AgentReport): boolean {
+  return !!report.error && /^\[[\w+.-]+\] (HTTP (429|5\d\d)|could not reach)/.test(report.error);
+}
 
 export function duration(ms: number) {
   const s = Math.round(ms / 1000);
@@ -29,9 +34,17 @@ function counts(report: AgentReport) {
 export function formatResultComment(report: AgentReport, runLabel: string, artifactsUrl: string, bugKeys: string[] = []): string {
   const lines: string[] = [];
   lines.push(`🤖 **AI QA result: ${VERDICT[report.verdict]}** · ${counts(report)}`);
+  const models = report.modelsUsed && report.modelsUsed.length > 1 ? report.modelsUsed.join(" → ") : report.model.model;
   lines.push(
-    `Model \`${report.model.provider}/${report.model.model}\` · ${report.steps.length} steps · ${report.usage.llmCalls} LLM calls · ${duration(report.durationMs)} · run \`${runLabel}\``,
+    `Model \`${report.model.provider}/${models}\` · ${report.steps.length} steps · ${report.usage.llmCalls} LLM calls · ${duration(report.durationMs)} · run \`${runLabel}\``,
   );
+  if (isProviderOutage(report)) {
+    lines.push(
+      "",
+      "⚠️ **This is not a product failure.** The AI model was unavailable (overloaded or rate-limited), so the remaining criteria could not be tested. " +
+        "The ticket stays in In Testing. Move it out and back to In Testing to retry later, or set `LLM_FALLBACK_MODELS` in .env so the agent can switch to another model.",
+    );
+  }
   lines.push("");
 
   for (const c of report.criteria) {

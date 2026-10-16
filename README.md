@@ -84,6 +84,7 @@ The model acts through a small tool set: `click(ref)`, `type(ref, text, submit?,
 | Says "pass" without checking | `record_result` must quote `observed_text` that appeared on a page the agent actually saw. Unverifiable evidence is rejected and the model must re-check; if it insists, the verdict is kept but flagged for a human. |
 | The model's summary is optimistic | The run verdict is computed in code from per-criterion results: any fail → FAILED, all pass → PASSED, otherwise INCOMPLETE. |
 | Skips criteria | `finish` is refused while criteria have no verdict; leftovers are reported as *not tested* and the ticket stays in *In Testing* for a human. |
+| The AI provider is down or overloaded | Retries with backoff, then switches to a fallback model; if all fail, the ticket is marked NOT TESTED (never FAILED) and left for a human. |
 | Loops forever / runs up a bill | Step limit (`AGENT_MAX_STEPS`) and time limit (`AGENT_TIMEOUT_SECONDS`) per run; token usage is reported. |
 | Miscounts characters for length limits | `type(..., repeat_to_length: 81)` produces exact-length input. |
 | Clicks stale elements | Refs are regenerated each snapshot; a stale ref is a recoverable tool error, and batched actions are cut off once the page has been re-read. |
@@ -147,6 +148,8 @@ npm run llm:check
 
 **Adding a provider** means implementing one method, `chat({ system, messages, tools }) → { text, toolCalls, usage }`, in `packages/llm/src/providers/` and registering it in `factory.ts`. The agent never sees provider-specific formats. Models without native tool calling are handled by `LLM_TOOL_MODE=json`, which describes the tools in the prompt and parses a JSON reply back into a tool call.
 
+**When the model is busy.** Hosted models sometimes answer `HTTP 503 (overloaded)` or `429 (rate limit)`, especially on free tiers. Each request is retried with exponential backoff (`LLM_MAX_RETRIES`, default 5 ≈ 1 minute). If the model is still unavailable, the agent switches to the next model in `LLM_FALLBACK_MODELS` and keeps going (the comment shows e.g. `gemini-3.8-flash → gemini-3.5-flash-lite`). If every model is down, the ticket is marked **NOT TESTED**, stays in *In Testing*, and the comment says plainly that this is an AI-provider problem, not a product failure, so a developer is never sent a false bug.
+
 If misconfigured, the orchestrator warns at startup, and a triggered ticket gets a comment explaining exactly what to fix instead of failing silently.
 
 ## The sample app and its planted bugs
@@ -198,6 +201,8 @@ All settings are in `.env.example` with comments. The main ones:
 |---|---|---|
 | `LLM_PROVIDER` / `LLM_MODEL` / `LLM_API_KEY` / `LLM_BASE_URL` | | Which model (see above) |
 | `LLM_TOOL_MODE` | `native` | `json` for models without tool calling |
+| `LLM_FALLBACK_MODELS` | | Same-provider models to switch to when the main one is overloaded |
+| `LLM_MAX_RETRIES` | `5` | Retries per request on 429/5xx/network errors |
 | `AGENT_HEADLESS` | `true` (`.env.example` sets `false`) | Show the browser while testing |
 | `AGENT_SLOW_MO_MS` | `0` | Slow actions down for watching |
 | `AGENT_MAX_STEPS` / `AGENT_TIMEOUT_SECONDS` | `40` / `600` | Per-run limits |

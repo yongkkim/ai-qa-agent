@@ -25,7 +25,7 @@ async function main() {
     bad((err as Error).message);
     process.exit(1);
   }
-  ok(`provider=${cfg.provider} model=${cfg.model}${cfg.baseUrl ? ` baseUrl=${cfg.baseUrl}` : ""} toolMode=${cfg.toolMode}`);
+  ok(`provider=${cfg.provider} model=${cfg.model}${cfg.baseUrl ? ` baseUrl=${cfg.baseUrl}` : ""} toolMode=${cfg.toolMode}${cfg.fallbackModels.length ? ` fallback=${cfg.fallbackModels.join(",")}` : ""}`);
   const llm = createProvider(cfg);
 
   const t0 = Date.now();

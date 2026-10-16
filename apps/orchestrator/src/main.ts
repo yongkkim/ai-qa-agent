@@ -45,7 +45,8 @@ app.listen(PORT, () => {
   // Surface config problems at startup instead of on the first ticket.
   try {
     const cfg = readLLMConfig();
-    console.log(`[orchestrator] AI model: ${cfg.provider}/${cfg.model}${AGENT.headless ? "" : " · browser visible"}`);
+    const fb = cfg.fallbackModels.length ? ` (fallback: ${cfg.fallbackModels.join(", ")})` : "";
+    console.log(`[orchestrator] AI model: ${cfg.provider}/${cfg.model}${fb}${AGENT.headless ? "" : " · browser visible"}`);
   } catch (err) {
     console.warn(`\n[orchestrator] ⚠️  AI model not configured: ${(err as Error).message}\n`);
   }

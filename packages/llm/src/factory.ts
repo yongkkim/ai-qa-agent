@@ -1,3 +1,4 @@
+import { FallbackProvider } from "./fallback.js";
 import { JsonToolCallingProvider } from "./json-tools.js";
 import { AnthropicProvider } from "./providers/anthropic.js";
 import { GeminiProvider } from "./providers/gemini.js";
@@ -13,6 +14,10 @@ export interface LLMConfig {
   apiKey?: string;
   baseUrl?: string;
   toolMode: "native" | "json";
+  /** Same-provider models to switch to when the main one is overloaded or rate-limited. */
+  fallbackModels: string[];
+  /** HTTP retries per request before giving up (or falling back). */
+  maxRetries?: number;
 }
 
 const DEFAULT_MODELS: Partial<Record<ProviderName, string>> = {
@@ -54,30 +59,42 @@ export function readLLMConfig(env: NodeJS.ProcessEnv = process.env): LLMConfig {
   const toolMode = (env.LLM_TOOL_MODE ?? "native").trim().toLowerCase();
   if (toolMode !== "native" && toolMode !== "json") throw new LLMConfigError(`LLM_TOOL_MODE must be "native" or "json".`);
 
-  return { provider: p, model, apiKey, baseUrl, toolMode };
+  const fallbackModels = (env.LLM_FALLBACK_MODELS ?? "")
+    .split(",")
+    .map((m) => m.trim())
+    .filter((m) => m && m !== model);
+
+  const retriesRaw = (env.LLM_MAX_RETRIES ?? "").trim();
+  const maxRetries = retriesRaw === "" ? undefined : Number(retriesRaw);
+  if (maxRetries !== undefined && (!Number.isInteger(maxRetries) || maxRetries < 0)) {
+    throw new LLMConfigError(`LLM_MAX_RETRIES must be a whole number (got "${retriesRaw}").`);
+  }
+
+  return { provider: p, model, apiKey, baseUrl, toolMode, fallbackModels, maxRetries };
 }
 
 export function createProvider(config: LLMConfig): LLMProvider {
-  let provider: LLMProvider;
-  switch (config.provider) {
-    case "gemini":
-      provider = new GeminiProvider({ apiKey: config.apiKey!, model: config.model, baseUrl: config.baseUrl });
-      break;
-    case "anthropic":
-      provider = new AnthropicProvider({ apiKey: config.apiKey!, model: config.model, baseUrl: config.baseUrl });
-      break;
-    case "openai":
-    case "ollama":
-    case "openai-compatible":
-      provider = new OpenAICompatibleProvider({
-        apiKey: config.apiKey,
-        model: config.model,
-        baseUrl: config.baseUrl,
-        providerName: config.provider,
-      });
-      break;
-  }
-  return config.toolMode === "json" ? new JsonToolCallingProvider(provider) : provider;
+  const build = (model: string): LLMProvider => {
+    const common = { model, baseUrl: config.baseUrl, retries: config.maxRetries };
+    let provider: LLMProvider;
+    switch (config.provider) {
+      case "gemini":
+        provider = new GeminiProvider({ ...common, apiKey: config.apiKey! });
+        break;
+      case "anthropic":
+        provider = new AnthropicProvider({ ...common, apiKey: config.apiKey! });
+        break;
+      case "openai":
+      case "ollama":
+      case "openai-compatible":
+        provider = new OpenAICompatibleProvider({ ...common, apiKey: config.apiKey, providerName: config.provider });
+        break;
+    }
+    return config.toolMode === "json" ? new JsonToolCallingProvider(provider) : provider;
+  };
+
+  const models = [config.model, ...config.fallbackModels];
+  return models.length > 1 ? new FallbackProvider(models.map(build)) : build(config.model);
 }
 
 /** One-liner used by the apps: read env, validate, build the provider. */

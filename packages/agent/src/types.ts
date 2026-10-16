@@ -47,6 +47,8 @@ export interface AgentReport {
   criteria: CriterionResult[];
   steps: StepRecord[];
   model: { provider: string; model: string };
+  /** When a fallback chain is configured: every model used in order (the last one finished the run). */
+  modelsUsed?: string[];
   usage: { inputTokens: number; outputTokens: number; llmCalls: number };
   /** Console errors, uncaught exceptions and failed requests seen while testing. */
   pageIssues: string[];

@@ -17,6 +17,8 @@ interface AnthropicResponse {
 }
 
 export interface AnthropicOptions {
+  /** Retries on 429/5xx/network errors (default ~1 minute of backoff). */
+  retries?: number;
   apiKey: string;
   model: string;
   baseUrl?: string;
@@ -28,9 +30,11 @@ export class AnthropicProvider implements LLMProvider {
   readonly model: string;
   private readonly apiKey: string;
   private readonly baseUrl: string;
+  private readonly retries?: number;
 
   constructor(opts: AnthropicOptions) {
     this.model = opts.model;
+    this.retries = opts.retries;
     this.apiKey = opts.apiKey;
     this.baseUrl = (opts.baseUrl || "https://api.anthropic.com/v1").replace(/\/$/, "");
   }
@@ -51,6 +55,7 @@ export class AnthropicProvider implements LLMProvider {
       headers: { "x-api-key": this.apiKey, "anthropic-version": "2023-06-01" },
       body,
       provider: this.provider,
+      retries: this.retries,
     });
 
     let text = "";

@@ -20,6 +20,8 @@ const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
 
 interface Preset {
   id: string;
+  /** Lighter model of the same provider to fall back to when the main one is overloaded. */
+  fallback?: string;
   label: string;
   model: string;
   needsKey: boolean;
@@ -29,7 +31,7 @@ interface Preset {
 }
 
 const PRESETS: Preset[] = [
-  { id: "gemini", label: "Google Gemini (free API key, recommended)", model: "gemini-3.8-flash", needsKey: true, keyUrl: "https://aistudio.google.com/apikey" },
+  { id: "gemini", label: "Google Gemini (free API key, recommended)", model: "gemini-3.8-flash", fallback: "gemini-3.5-flash-lite", needsKey: true, keyUrl: "https://aistudio.google.com/apikey" },
   { id: "openai", label: "OpenAI", model: "", needsKey: true, keyUrl: "https://platform.openai.com/api-keys" },
   { id: "anthropic", label: "Anthropic Claude", model: "claude-sonnet-5-5", needsKey: true, keyUrl: "https://console.anthropic.com/settings/keys" },
   { id: "ollama", label: "Ollama (local model, no key)", model: "qwen3", needsKey: false, baseUrl: "http://localhost:11434/v1" },
@@ -96,6 +98,7 @@ async function main() {
   content = setVar(content, "LLM_MODEL", model);
   content = setVar(content, "LLM_API_KEY", key);
   content = setVar(content, "LLM_BASE_URL", preset.id === "ollama" ? "" : baseUrl);
+  content = setVar(content, "LLM_FALLBACK_MODELS", preset.fallback && preset.fallback !== model ? preset.fallback : "");
 
   const watch = await yes("Show the browser while the agent tests (recommended for demos)?", true);
   content = setVar(content, "AGENT_HEADLESS", watch ? "false" : "true");

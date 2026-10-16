@@ -2,6 +2,8 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   createProvider,
+  FallbackProvider,
+  LLMRequestError,
   JsonToolCallingProvider,
   LLMConfigError,
   parseToolCall,
@@ -33,6 +35,48 @@ describe("readLLMConfig", () => {
     const p = createProvider(readLLMConfig({ LLM_PROVIDER: "ollama", LLM_MODEL: "tiny", LLM_TOOL_MODE: "json" }));
     assert.ok(p instanceof JsonToolCallingProvider);
     assert.equal(p.provider, "ollama+json-tools");
+  });
+});
+
+describe("fallback models", () => {
+  it("builds a fallback chain from LLM_FALLBACK_MODELS (skipping the main model)", () => {
+    const cfg = readLLMConfig({ LLM_PROVIDER: "gemini", LLM_API_KEY: "k", LLM_MODEL: "big", LLM_FALLBACK_MODELS: "small, big ,tiny", LLM_MAX_RETRIES: "2" });
+    assert.deepEqual(cfg.fallbackModels, ["small", "tiny"]);
+    assert.equal(cfg.maxRetries, 2);
+    const p = createProvider(cfg);
+    assert.ok(p instanceof FallbackProvider);
+    assert.equal(p.model, "big");
+    assert.throws(() => readLLMConfig({ LLM_PROVIDER: "gemini", LLM_API_KEY: "k", LLM_MAX_RETRIES: "lots" }), /LLM_MAX_RETRIES/);
+  });
+
+  const failing = (model: string, err: Error) => ({ provider: "fake", model, chat: async () => Promise.reject(err) });
+
+  it("switches to the next model when one is overloaded, and stays there", async () => {
+    const backup = new ScriptedProvider([{ text: "from backup" }, { text: "still backup" }]);
+    const switches: string[] = [];
+    const p = new FallbackProvider([failing("big", new LLMRequestError("[fake] HTTP 503", 503, true)), backup], (from, to) =>
+      switches.push(`${from.model}->${to.model}`),
+    );
+    const req = { system: "s", messages: [{ role: "user" as const, content: "x" }] };
+    assert.equal((await p.chat(req)).text, "from backup");
+    assert.equal((await p.chat(req)).text, "still backup");
+    assert.deepEqual(switches, ["big->scripted"]);
+    assert.deepEqual(p.modelsUsed, ["big", "scripted"]);
+  });
+
+  it("does not hide errors a human must fix (e.g. a bad key)", async () => {
+    const backup = new ScriptedProvider([{ text: "never" }]);
+    const p = new FallbackProvider([failing("big", new LLMRequestError("[fake] HTTP 401", 401, false)), backup], () => {});
+    await assert.rejects(p.chat({ system: "s", messages: [{ role: "user", content: "x" }] }), /401/);
+    assert.equal(backup.requests.length, 0);
+  });
+
+  it("gives up with the last error when every model is unavailable", async () => {
+    const p = new FallbackProvider(
+      [failing("a", new LLMRequestError("[fake] HTTP 503 a", 503, true)), failing("b", new LLMRequestError("[fake] HTTP 503 b", 503, true))],
+      () => {},
+    );
+    await assert.rejects(p.chat({ system: "s", messages: [{ role: "user", content: "x" }] }), /503 b/);
   });
 });
 
