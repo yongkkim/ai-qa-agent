@@ -30,7 +30,7 @@ export const APP_UNDER_TEST_URL = env.APP_UNDER_TEST_URL || "http://localhost:51
 export const ARTIFACTS_DIR = resolve(REPO_ROOT, env.ARTIFACTS_DIR || "artifacts");
 
 export const AGENT = {
-  maxSteps: num(env.AGENT_MAX_STEPS, 40),
+  maxSteps: num(env.AGENT_MAX_STEPS, 60),
   timeoutMs: num(env.AGENT_TIMEOUT_SECONDS, 600) * 1000,
   headless: bool(env.AGENT_HEADLESS, true),
   slowMo: num(env.AGENT_SLOW_MO_MS, 0),

@@ -15,7 +15,7 @@ import { LLMConfigError, ScriptedProvider, type LLMProvider, type ScriptStep } f
 import { createMockJira } from "../../mock-jira/src/app.js";
 import { JsdomDriver } from "../../../packages/agent/test/support/jsdom-driver.js";
 import { buildSampleApp } from "../../../packages/agent/test/support/sample-app.js";
-import { addTodo, onPage } from "../../../packages/agent/test/support/script-helpers.js";
+import { addTodo, onPage, plan } from "../../../packages/agent/test/support/script-helpers.js";
 import { createOrchestratorApp } from "../src/app.js";
 import { JiraClient } from "../src/jira.js";
 import { RunQueue } from "../src/queue.js";
@@ -39,6 +39,7 @@ let makeLLM: () => LLMProvider;
 /** A scripted tester for the "whitespace-only todo is rejected" criterion. Decides from what the page shows. */
 const emptyInputTester = () =>
   new ScriptedProvider([
+    plan("AC1", "Todo cannot be empty."),
     addTodo("   "),
     onPage("record_result", (page) =>
       page.includes('alert "Todo cannot be empty."')
@@ -119,7 +120,7 @@ describe("In Testing → AI QA → results on the ticket", () => {
     const bodies = i.fields.comment.comments.map((c: any) => c.body);
     assert.match(bodies[0], /AI QA run started.*scripted\/scripted/);
     assert.match(bodies[1], /AI QA result: ✅ PASSED/);
-    assert.match(bodies[1], /Evidence: `Todo cannot be empty.`/);
+    assert.match(bodies[1], /Checked: expected `Todo cannot be empty.` ✓ on page/);
     assert.ok(i.fields.comment.comments.every((c: any) => c.author.displayName === "AI QA Agent"));
   });
 

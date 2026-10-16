@@ -75,12 +75,14 @@ text "1 item left"
 [e10] button "Clear completed (1)"
 ```
 
-The model acts through a small tool set: `click(ref)`, `type(ref, text, submit?, repeat_to_length?)`, `press_key`, `select_option`, `navigate`, `reload`, `record_result`, `finish`. Screenshots are still captured, as evidence for humans.
+The model acts through a small tool set: `plan_test`, `click(ref)`, `type(ref, text, submit?, repeat_to_length?)`, `press_key`, `select_option`, `navigate`, `reload`, `record_result`, `finish`. For every criterion it must call `plan_test` first: how it will test, and the exact text the page must show if the feature works (the test oracle), written before it looks at the result. Screenshots are still captured, as evidence for humans.
 
 ### Guard rails (why you can trust a verdict)
 
 | Risk with an LLM tester | What the agent does about it |
 |---|---|
+| Sees a bug and still says "pass" (found in a real run: the counter didn't change and the model passed it anyway) | The expected result is declared up front with `plan_test`. When the model records PASS, the code checks the current page for that expected text (and for any `must_not_appear` text). A contradicted PASS is rejected; if the model insists, it becomes *blocked* for a human, never a pass. |
+| Tests only the trivial case (e.g. a counter with nothing completed, where a wrong formula still gives the right number) | The prompt asks for setups where a broken implementation would show something different from a working one (mixed states, before/after values, limits, items that should be hidden). |
 | Says "pass" without checking | `record_result` must quote `observed_text` that appeared on a page the agent actually saw. Unverifiable evidence is rejected and the model must re-check; if it insists, the verdict is kept but flagged for a human. |
 | The model's summary is optimistic | The run verdict is computed in code from per-criterion results: any fail → FAILED, all pass → PASSED, otherwise INCOMPLETE. |
 | Skips criteria | `finish` is refused while criteria have no verdict; leftovers are reported as *not tested* and the ticket stays in *In Testing* for a human. |
@@ -205,7 +207,7 @@ All settings are in `.env.example` with comments. The main ones:
 | `LLM_MAX_RETRIES` | `5` | Retries per request on 429/5xx/network errors |
 | `AGENT_HEADLESS` | `true` (`.env.example` sets `false`) | Show the browser while testing |
 | `AGENT_SLOW_MO_MS` | `0` | Slow actions down for watching |
-| `AGENT_MAX_STEPS` / `AGENT_TIMEOUT_SECONDS` | `40` / `600` | Per-run limits |
+| `AGENT_MAX_STEPS` / `AGENT_TIMEOUT_SECONDS` | `60` / `600` | Per-run limits |
 | `AGENT_BROWSER_CHANNEL` / `AGENT_BROWSER_PATH` | | Use installed Chrome/Edge or a specific Chromium instead of Playwright's |
 | `QA_TRIGGER_STATUS` | `In Testing` | Status that starts a run |
 | `QA_STATUS_ON_PASS` / `QA_STATUS_ON_FAIL` | `Done` / `In Progress` | Where tickets go afterwards |

@@ -37,3 +37,9 @@ export function onPage(tool: string, args: (page: string, req: ChatRequest) => R
 
 export const addTodo = (text: string): ScriptStep =>
   onPage("type", (p) => ({ ref: ref(p, 'textbox "New todo"'), text, submit: true }));
+
+/** plan_test step: declare the oracle for a criterion. */
+export const plan = (criterion: string, expected_text: string, must_not_appear?: string): ScriptStep => ({
+  tool: "plan_test",
+  args: { criterion, how_to_test: "scripted", expected_text, ...(must_not_appear ? { must_not_appear } : {}) },
+});

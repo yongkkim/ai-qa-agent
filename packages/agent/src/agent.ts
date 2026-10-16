@@ -25,6 +25,16 @@ const REF_TOOLS = new Set(["click", "type", "select_option"]);
 const ACTION_TOOLS = new Set(["click", "type", "press_key", "select_option", "navigate", "reload"]);
 /** How many times a verdict with unverifiable evidence is bounced back before being accepted (and flagged). */
 const MAX_GROUNDING_REJECTIONS = 2;
+/** How many times a PASS that the page contradicts is bounced back before it is downgraded to "blocked". */
+const MAX_ORACLE_REJECTIONS = 2;
+
+interface TestPlan {
+  howToTest: string;
+  expectedText: string;
+  mustNotAppear?: string;
+  /** Expectations the agent declared earlier and then replaced (shown to humans: changing the oracle after looking is suspicious). */
+  previous: string[];
+}
 
 interface ExecResult {
   ok: boolean;
@@ -45,7 +55,7 @@ interface ExecResult {
  */
 export async function runAgent(ticket: TicketUnderTest, opts: AgentOptions): Promise<AgentReport> {
   const { llm, browser, runDir } = opts;
-  const maxSteps = opts.maxSteps ?? 40;
+  const maxSteps = opts.maxSteps ?? 60;
   const timeoutMs = opts.timeoutMs ?? 10 * 60_000;
   const log = opts.log ?? (() => {});
   const startedAt = new Date();
@@ -57,6 +67,8 @@ export async function runAgent(ticket: TicketUnderTest, opts: AgentOptions): Pro
   const pageIssues: string[] = [];
   const usage = { inputTokens: 0, outputTokens: 0, llmCalls: 0 };
   const groundingRejections = new Map<string, number>();
+  const oracleRejections = new Map<string, number>();
+  const plans = new Map<string, TestPlan>();
   const appOrigin = new URL(ticket.appUrl).origin;
 
   let summary = "";
@@ -132,6 +144,8 @@ export async function runAgent(ticket: TicketUnderTest, opts: AgentOptions): Pro
       case "reload":
         await browser.reload();
         return { ok: true, outcome: "reloaded the page", attachPage: true };
+      case "plan_test":
+        return planTest(a);
       case "record_result":
         return recordResult(a, stepN);
       case "finish": {
@@ -148,15 +162,39 @@ export async function runAgent(ticket: TicketUnderTest, opts: AgentOptions): Pro
     }
   }
 
+  /** The test oracle: what the page must show if the feature works, declared BEFORE looking at the result. */
+  function planTest(a: Record<string, unknown>): ExecResult {
+    const target = findCriterion(criteria, a.criterion);
+    if (!target) return { ok: false, outcome: `unknown criterion "${a.criterion}". Use one of ${criteria.map((c) => c.id).join(", ")}.` };
+    const expectedText = String(a.expected_text ?? "").trim();
+    if (expectedText.length < 2) return { ok: false, outcome: "expected_text is required: the exact text the page must show if the feature works." };
+    const prev = plans.get(target.id);
+    plans.set(target.id, {
+      howToTest: String(a.how_to_test ?? "").trim(),
+      expectedText,
+      mustNotAppear: optStr(a.must_not_appear),
+      previous: prev && prev.expectedText !== expectedText ? [...prev.previous, prev.expectedText] : (prev?.previous ?? []),
+    });
+    return {
+      ok: true,
+      outcome: `planned ${target.id}: expect ${JSON.stringify(expectedText)}${a.must_not_appear ? `, and NOT ${JSON.stringify(a.must_not_appear)}` : ""}`,
+      detail: "Now set up the state and perform the steps. Record the verdict while the result is on screen.",
+    };
+  }
+
   async function recordResult(a: Record<string, unknown>, stepN: number): Promise<ExecResult> {
     const target = findCriterion(criteria, a.criterion);
     if (!target) return { ok: false, outcome: `unknown criterion "${a.criterion}". Use one of ${criteria.map((c) => c.id).join(", ")}.` };
-    const status = String(a.status ?? "").toLowerCase() as CriterionStatus;
+    let status = String(a.status ?? "").toLowerCase() as CriterionStatus;
     if (!["pass", "fail", "blocked"].includes(status)) return { ok: false, outcome: `status must be pass, fail or blocked` };
+    const plan = plans.get(target.id);
+    if (!plan && status !== "blocked") {
+      return { ok: false, outcome: `no test plan for ${target.id}. Call plan_test first (how you will test it and the exact text you expect), then test, then record.` };
+    }
     const observed = String(a.observed_text ?? "").trim();
 
     // Evidence grounding: the quoted text must have actually been on a page the agent saw.
-    await takeSnapshot();
+    const current = await takeSnapshot();
     let grounded = true;
     if (status !== "blocked") {
       grounded = isGrounded(observed, seenPages);
@@ -173,17 +211,45 @@ export async function runAgent(ticket: TicketUnderTest, opts: AgentOptions): Pro
       }
     }
 
+    // Oracle check: a PASS must agree with the plan, checked by code against the page right now.
+    // This stops the most dangerous LLM failure in QA: calling a visible bug a pass.
+    let oracle: CriterionResult["oracle"];
+    if (plan) {
+      const expectedOnPage = isGrounded(plan.expectedText, [current]);
+      const forbiddenOnPage = plan.mustNotAppear ? isGrounded(plan.mustNotAppear, [current]) : false;
+      oracle = { expected: plan.expectedText, mustNotAppear: plan.mustNotAppear, held: expectedOnPage && !forbiddenOnPage, revised: plan.previous };
+      if (status === "pass" && !oracle.held) {
+        const n = (oracleRejections.get(target.id) ?? 0) + 1;
+        oracleRejections.set(target.id, n);
+        const why = !expectedOnPage
+          ? `your planned expected text ${JSON.stringify(plan.expectedText)} is not on the page right now`
+          : `${JSON.stringify(plan.mustNotAppear)} is on the page, but your plan said it must not be`;
+        if (n <= MAX_ORACLE_REJECTIONS) {
+          return {
+            ok: false,
+            outcome: `rejected PASS for ${target.id}: ${why}. Compare the page with your expectation. If the app really behaves differently from the acceptance criterion, record status "fail" with expected vs actual. If you have not performed the check yet, do it and record while the result is on screen.`,
+            attachPage: true,
+          };
+        }
+        // The model insists on a pass the page contradicts: never let that through as a pass.
+        status = "blocked";
+        a.notes = `Agent claimed PASS, but its own expected result (${why}) was not confirmed by the page. Needs human review.`;
+      }
+    }
+
     const screenshot = `${target.id}.png`;
     await browser.screenshot(join(runDir, screenshot)).catch(() => {});
     Object.assign(target, {
       status,
       observed: observed || undefined,
-      expected: optStr(a.expected),
+      expected: optStr(a.expected) ?? plan?.expectedText,
       actual: optStr(a.actual),
       stepsToReproduce: optStr(a.steps_to_reproduce),
       notes: optStr(a.notes),
+      howTested: plan?.howToTest || undefined,
       screenshot,
       grounded,
+      oracle,
     });
     const left = remaining();
     return {
@@ -322,7 +388,10 @@ export function isGrounded(observed: string, pages: string[]): boolean {
       .trim();
   const o = norm(observed);
   if (o.length < 2) return false;
-  return pages.some((p) => norm(p).includes(o));
+  // Whole-text match: "2 items left" must not match inside "12 items left".
+  const escaped = o.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "u");
+  return pages.some((p) => re.test(norm(p)));
 }
 
 /** Keeps only the newest page snapshot in the conversation to bound token usage. */

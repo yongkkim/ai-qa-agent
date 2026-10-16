@@ -9,7 +9,7 @@ import { PAGE_MARKER } from "../src/prompts.js";
 import type { TicketUnderTest } from "../src/types.js";
 import { JsdomDriver } from "./support/jsdom-driver.js";
 import { buildSampleApp } from "./support/sample-app.js";
-import { addTodo, lastToolResult, onPage, ref } from "./support/script-helpers.js";
+import { addTodo, lastToolResult, onPage, plan, ref } from "./support/script-helpers.js";
 
 const APP_URL = "http://localhost:5173/";
 const runDir = () => mkdtempSync(join(tmpdir(), "ai-qa-run-"));
@@ -31,6 +31,7 @@ async function run(mode: "normal" | "buggy", criteria: string[], script: ScriptS
  * normal build and fail on the buggy one.
  */
 const emptyInputScript: ScriptStep[] = [
+  plan("AC1", "Todo cannot be empty."),
   addTodo("   "),
   onPage("record_result", (page) =>
     page.includes('alert "Todo cannot be empty."')
@@ -70,6 +71,7 @@ describe("agent loop against the real sample app", () => {
 
   it("catches the planted counter bug (counts completed todos)", async () => {
     const script: ScriptStep[] = [
+      plan("AC1", "1 item left"),
       addTodo("Buy milk"),
       addTodo("Walk dog"),
       onPage("click", (p) => ({ ref: ref(p, 'checkbox "Buy milk"') })),
@@ -87,12 +89,13 @@ describe("agent loop against the real sample app", () => {
 
   it("types text of an exact length with repeat_to_length", async () => {
     const script: ScriptStep[] = [
+      plan("AC1", "Todo must be 80 characters or fewer."),
       onPage("type", (p) => ({ ref: ref(p, 'textbox "New todo"'), text: "a", repeat_to_length: 81, submit: true })),
       onPage("record_result", () => ({ criterion: "AC1", status: "pass", observed_text: "Todo must be 80 characters or fewer." })),
       { tool: "finish", args: { summary: "done" } },
     ];
     const { report } = await run("normal", ["Text longer than 80 characters is rejected"], script);
-    assert.match(report.steps[0].outcome, /\(81 chars\)/);
+    assert.match(report.steps[1].outcome, /\(81 chars\)/);
     assert.equal(report.verdict, "passed");
   });
 });
@@ -101,6 +104,7 @@ describe("guard rails", () => {
   it("rejects a verdict whose evidence never appeared on the page, then accepts a grounded one", async () => {
     let rejection = "";
     const script: ScriptStep[] = [
+      plan("AC1", "Nothing here yet."),
       { tool: "record_result", args: { criterion: "AC1", status: "pass", observed_text: "Everything works perfectly" } },
       (req) => {
         rejection = lastToolResult(req);
@@ -116,7 +120,7 @@ describe("guard rails", () => {
 
   it("accepts but flags evidence that stays ungrounded after repeated rejections", async () => {
     const bogus = { tool: "record_result", args: { criterion: "AC1", status: "pass", observed_text: "made up text" } };
-    const { report } = await run("normal", ["Anything"], [bogus, bogus, bogus, { tool: "finish", args: { summary: "x" } }]);
+    const { report } = await run("normal", ["Anything"], [plan("AC1", "Nothing here yet."), bogus, bogus, bogus, { tool: "finish", args: { summary: "x" } }]);
     assert.equal(report.criteria[0].status, "pass");
     assert.equal(report.criteria[0].grounded, false);
   });
@@ -124,6 +128,7 @@ describe("guard rails", () => {
   it("bounces an early finish once, then ends with the remaining criteria marked not tested", async () => {
     let bounce = "";
     const script: ScriptStep[] = [
+      plan("AC1", "Nothing here yet."),
       { tool: "record_result", args: { criterion: "AC1", status: "pass", observed_text: "Nothing here yet." } },
       { tool: "finish", args: { summary: "first try" } },
       (req) => {
@@ -185,6 +190,88 @@ describe("guard rails", () => {
   });
 });
 
+describe("test oracle (plan_test): a PASS must match what the page shows", () => {
+  const COUNTER_AC = "Completing a todo updates the counter immediately.";
+  // A lazy model: completes the only todo, sees the counter did NOT change, and calls it a pass anyway.
+  const lazy = (passAttempts: number, thenFail: boolean): ScriptStep[] => [
+    plan("AC1", "0 items left"),
+    addTodo("Buy milk"),
+    onPage("click", (p) => ({ ref: ref(p, 'checkbox "Buy milk"') })),
+    ...Array(passAttempts).fill({ tool: "record_result", args: { criterion: "AC1", status: "pass", observed_text: "1 item left" } }),
+    ...(thenFail
+      ? [{ tool: "record_result", args: { criterion: "AC1", status: "fail", observed_text: "1 item left", expected: "0 items left", actual: "1 item left" } }]
+      : []),
+    { tool: "finish", args: { summary: "done" } },
+  ];
+
+  it("rejects a PASS the page contradicts, so the model records the real bug", async () => {
+    let rejection = "";
+    const script = lazy(1, true);
+    const fail = script[4];
+    script[4] = (req) => {
+      rejection = lastToolResult(req);
+      return fail;
+    };
+    const { report } = await run("buggy", [COUNTER_AC], script);
+    assert.match(rejection, /rejected PASS for AC1: your planned expected text "0 items left" is not on the page/);
+    assert.equal(report.verdict, "failed");
+    assert.equal(report.criteria[0].oracle?.held, false);
+  });
+
+  it("never lets an insisted, contradicted PASS through: it becomes 'blocked' for a human", async () => {
+    const { report } = await run("buggy", [COUNTER_AC], lazy(3, false));
+    const c = report.criteria[0];
+    assert.equal(c.status, "blocked");
+    assert.match(c.notes!, /claimed PASS.*Needs human review/);
+    assert.equal(report.verdict, "incomplete");
+  });
+
+  it("accepts the same PASS on the correct app, where the page confirms the plan", async () => {
+    const { report } = await run("normal", [COUNTER_AC], lazy(1, false).map((s) =>
+      typeof s !== "function" && "tool" in s && s.tool === "record_result" ? { ...s, args: { ...s.args, observed_text: "0 items left" } } : s,
+    ));
+    assert.equal(report.verdict, "passed");
+    assert.equal(report.criteria[0].oracle?.held, true);
+  });
+
+  it("checks must_not_appear (e.g. an item a filter should hide)", async () => {
+    const ac = '"Active" shows only todos that are not completed.';
+    const script = (applyFilter: boolean): ScriptStep[] => [
+      plan("AC1", "Walk dog", "Buy milk"),
+      addTodo("Buy milk"),
+      addTodo("Walk dog"),
+      onPage("click", (p) => ({ ref: ref(p, 'checkbox "Buy milk"') })),
+      ...(applyFilter ? [onPage("click", (p) => ({ ref: ref(p, 'button "Active"') }))] : []),
+      { tool: "record_result", args: { criterion: "AC1", status: "pass", observed_text: "Walk dog" } },
+      { tool: "finish", args: { summary: "x" } },
+      { tool: "finish", args: { summary: "x" } },
+    ];
+    // Filter applied: the completed todo is hidden, so the pass stands.
+    assert.equal((await run("normal", [ac], script(true))).report.criteria[0].status, "pass");
+    // Forgot to filter: "Buy milk" is still visible, so the pass is refused.
+    const { llm } = await run("normal", [ac], script(false));
+    const refusal = llm.requests.map((r) => (r.messages.at(-1)?.role === "tool" ? r.messages.at(-1)!.content : "")).find((c) => c.includes("rejected PASS"));
+    assert.match(refusal ?? "", /"Buy milk" is on the page, but your plan said it must not be/);
+  });
+
+  it("requires a plan before any pass/fail verdict, and tracks changed expectations", async () => {
+    let noPlan = "";
+    const script: ScriptStep[] = [
+      { tool: "record_result", args: { criterion: "AC1", status: "pass", observed_text: "Nothing here yet." } },
+      (req) => {
+        noPlan = lastToolResult(req);
+        return plan("AC1", "Something else") as ScriptStep;
+      },
+      plan("AC1", "Nothing here yet."),
+      { tool: "record_result", args: { criterion: "AC1", status: "pass", observed_text: "Nothing here yet." } },
+      { tool: "finish", args: { summary: "x" } },
+    ];
+    const { report } = await run("normal", ["Empty state"], script);
+    assert.match(noPlan, /no test plan for AC1\. Call plan_test first/);
+    assert.deepEqual(report.criteria[0].oracle?.revised, ["Something else"]);
+  });
+});
+
 describe("helpers", () => {
   it("isGrounded ignores case, quotes, whitespace and refs", () => {
     const page = 'list "Todo list":\n  [e6] checkbox "Buy milk" (checked)\ntext "1 item left"';
@@ -193,6 +280,7 @@ describe("helpers", () => {
     assert.ok(isGrounded('checkbox "Buy milk" (checked)', [page]));
     assert.ok(!isGrounded("2 items left", [page]));
     assert.ok(!isGrounded("", [page]));
+    assert.ok(!isGrounded("2 items left", ['text "12 items left"']), "whole-text match only");
   });
 
   it("computeVerdict: any fail fails, all pass passes, otherwise incomplete", () => {

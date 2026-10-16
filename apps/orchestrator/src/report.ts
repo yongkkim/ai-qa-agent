@@ -49,7 +49,13 @@ export function formatResultComment(report: AgentReport, runLabel: string, artif
 
   for (const c of report.criteria) {
     lines.push(`${ICON[c.status]} **${c.id}** ${c.text}`);
-    if (c.status === "pass" && c.observed) lines.push(`    Evidence: \`${c.observed}\``);
+    if (c.status === "pass") {
+      if (c.oracle?.held) lines.push(`    Checked: expected \`${c.oracle.expected}\` ✓ on page${c.howTested ? ` (${c.howTested})` : ""}`);
+      else if (c.observed) lines.push(`    Evidence: \`${c.observed}\``);
+    }
+    if (c.oracle?.revised.length) {
+      lines.push(`    ⚠️ The agent changed its expected result during the test (was: ${c.oracle.revised.map((r) => `\`${r}\``).join(", ")}); worth a human look.`);
+    }
     if (c.status === "fail") {
       if (c.expected) lines.push(`    Expected: ${c.expected}`);
       if (c.actual) lines.push(`    Actual: ${c.actual}`);

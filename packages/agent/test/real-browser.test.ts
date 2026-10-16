@@ -15,7 +15,7 @@ import { ScriptedProvider, type ScriptStep } from "@ai-qa/llm";
 import { runAgent } from "../src/agent.js";
 import { PlaywrightDriver } from "../src/browser/playwright.js";
 import { buildSampleApp } from "./support/sample-app.js";
-import { addTodo, onPage, ref } from "./support/script-helpers.js";
+import { addTodo, onPage, plan, ref } from "./support/script-helpers.js";
 
 const launchOpts = { channel: process.env.AGENT_BROWSER_CHANNEL || undefined, executablePath: process.env.AGENT_BROWSER_PATH || undefined };
 let available = false;
@@ -45,6 +45,7 @@ before(async () => {
 after(() => Object.values(servers).forEach((s) => s.server.close()));
 
 const counterAndWhitespace: ScriptStep[] = [
+  plan("AC1", "1 item left"),
   addTodo("Buy milk"),
   addTodo("Walk dog"),
   onPage("click", (p) => ({ ref: ref(p, 'checkbox "Buy milk"') })),
@@ -53,6 +54,7 @@ const counterAndWhitespace: ScriptStep[] = [
       ? { criterion: "AC1", status: "pass", observed_text: "1 item left" }
       : { criterion: "AC1", status: "fail", observed_text: "2 items left", expected: "1 item left", actual: "2 items left" },
   ),
+  plan("AC2", "Todo cannot be empty."),
   addTodo("   "),
   onPage("record_result", (p) =>
     p.includes('alert "Todo cannot be empty."')

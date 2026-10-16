@@ -116,8 +116,21 @@ const badges = (issue) => issue.fields.labels
   .map((l) => `<span class="qa ${QA_BADGES[l][0]}">${QA_BADGES[l][1]}</span>`).join("");
 const ago = (iso) => new Date(iso).toLocaleString();
 
-async function load() {
-  state = await (await fetch("/api/board")).json();
+let lastSignature = "";
+/** True while the user is selecting text inside the details panel (re-rendering would drop the selection). */
+function selectingInDrawer() {
+  const sel = window.getSelection();
+  return !!sel && !sel.isCollapsed && document.getElementById("drawer").contains(sel.anchorNode);
+}
+
+async function load(force = false) {
+  const next = await (await fetch("/api/board")).json();
+  const signature = JSON.stringify(next);
+  // Polling only redraws when something changed, and never under an active text selection,
+  // so comments can be selected and copied.
+  if (!force && (signature === lastSignature || selectingInDrawer())) return;
+  lastSignature = signature;
+  state = next;
   render();
   if (openKey) renderDrawer(false);
 }

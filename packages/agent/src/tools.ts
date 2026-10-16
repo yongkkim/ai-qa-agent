@@ -44,8 +44,25 @@ export const AGENT_TOOLS: ToolDefinition[] = [
     parameters: { type: "object", properties: {} },
   },
   {
+    name: "plan_test",
+    description:
+      "Before testing a criterion, declare how you will test it and the exact text the page must show if the feature works (the test oracle). " +
+      "Choose a setup where a broken implementation would show something different from a working one. A PASS is only accepted if the page shows expected_text when you record it.",
+    parameters: {
+      type: "object",
+      properties: {
+        criterion: { type: "string", description: 'Criterion id, e.g. "AC3".' },
+        how_to_test: { type: "string", description: "Setup and steps, e.g. 'Add 3 todos, complete 1, read the footer'." },
+        expected_text: { type: "string", description: 'Exact text that must be on the page if it works, e.g. "2 items left" or "Todo cannot be empty."' },
+        must_not_appear: { type: "string", description: "Optional text that must NOT be on the page if it works (e.g. a todo that should have been removed)." },
+      },
+      required: ["criterion", "how_to_test", "expected_text"],
+    },
+  },
+  {
     name: "record_result",
-    description: "Record your verdict for one acceptance criterion, with evidence. A screenshot is captured automatically.",
+    description:
+      "Record your verdict for one acceptance criterion, with evidence, while the result is still on screen. Requires plan_test first. A screenshot is captured automatically.",
     parameters: {
       type: "object",
       properties: {

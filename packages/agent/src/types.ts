@@ -24,6 +24,10 @@ export interface CriterionResult {
   screenshot?: string;
   /** false when the model's evidence could not be found on any page it saw. */
   grounded?: boolean;
+  /** How the agent said it would test this (from plan_test). */
+  howTested?: string;
+  /** The test oracle declared before testing, and whether the page confirmed it when the verdict was recorded. */
+  oracle?: { expected: string; mustNotAppear?: string; held: boolean; revised: string[] };
 }
 
 export interface StepRecord {
