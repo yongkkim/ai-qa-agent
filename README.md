@@ -182,6 +182,8 @@ npm test
 - **Model adapters**: request/response mapping for Gemini (including thought signatures), OpenAI-compatible and Anthropic, retries, error messages, JSON tool fallback, config validation.
 - **Page snapshot**: roles, names, states, whitespace in values, ref regeneration, persistence across reloads.
 
+**Manual test plan:** [TESTING.md](TESTING.md) covers the end-to-end checks with a real model (no-bug run, each planted bug, bug-ticket modes, fresh-clone setup, misconfiguration, manual triggers) with space to record results.
+
 ## Project structure
 
 ```
