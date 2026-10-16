@@ -34,9 +34,8 @@ function counts(report: AgentReport) {
 export function formatResultComment(report: AgentReport, runLabel: string, artifactsUrl: string, bugKeys: string[] = []): string {
   const lines: string[] = [];
   lines.push(`🤖 **AI QA result: ${VERDICT[report.verdict]}** · ${counts(report)}`);
-  const models = report.modelsUsed && report.modelsUsed.length > 1 ? report.modelsUsed.join(" → ") : report.model.model;
   lines.push(
-    `Model \`${report.model.provider}/${models}\` · ${report.steps.length} steps · ${report.usage.llmCalls} LLM calls · ${duration(report.durationMs)} · run \`${runLabel}\``,
+    `Model \`${modelLabel(report)}\` · ${report.steps.length} steps · ${report.usage.llmCalls} LLM calls · ${duration(report.durationMs)} · run \`${runLabel}\``,
   );
   if (isProviderOutage(report)) {
     lines.push(
@@ -78,23 +77,43 @@ export function formatResultComment(report: AgentReport, runLabel: string, artif
   return lines.join("\n");
 }
 
-export function formatBugDescription(parentKey: string, c: CriterionResult, report: AgentReport, artifactsUrl: string): string {
-  return [
+/** "gemini/gemini-3.6-flash → gemini-3.5-flash-lite" when a fallback happened, else just the model. */
+export function modelLabel(report: AgentReport): string {
+  const models = report.modelsUsed && report.modelsUsed.length > 1 ? report.modelsUsed.join(" → ") : report.model.model;
+  return `${report.model.provider}/${models}`;
+}
+
+/**
+ * Bug ticket body, laid out like a hand-written bug report: what's wrong, how to reproduce it,
+ * the evidence, and finally the environment (including which AI model made the call).
+ */
+export function formatBugDescription(
+  parentKey: string,
+  c: CriterionResult,
+  report: AgentReport,
+  artifactsUrl: string,
+  env: { appUrl?: string; runLabel?: string } = {},
+): string {
+  const lines = [
     `Found by the AI QA agent while testing ${parentKey}.`,
     "",
-    `Acceptance criterion (${c.id}): ${c.text}`,
+    `**Acceptance criterion (${c.id}):** ${c.text}`,
     "",
-    `Expected: ${c.expected ?? "(see criterion)"}`,
-    `Actual: ${c.actual ?? "(see evidence)"}`,
-    c.observed ? `Observed on page: \`${c.observed}\`` : "",
+    `**Expected:** ${c.expected ?? "(see criterion)"}`,
+    `**Actual:** ${c.actual ?? "(see evidence)"}`,
+    c.observed ? `**Observed on page:** \`${c.observed}\`` : "",
     "",
-    "Steps to reproduce:",
+    "**Steps to reproduce:**",
     c.stepsToReproduce ?? "(not provided — see the run report)",
     "",
-    `Model: ${report.model.provider}/${report.model.model}`,
-    c.screenshot ? `![${c.id} screenshot](${artifactsUrl}/${c.screenshot})` : "",
+  ];
+  if (c.screenshot) lines.push("**Evidence:**", `![${c.id} screenshot](${artifactsUrl}/${c.screenshot})`, "");
+  lines.push(
+    "**Environment**",
+    ...(env.appUrl ? [`App: ${env.appUrl}`] : []),
+    `Tested by: AI QA agent, model \`${modelLabel(report)}\``,
+    ...(env.runLabel ? [`Run: \`${env.runLabel}\``] : []),
     `Run report: ${artifactsUrl}/report.json`,
-  ]
-    .filter((l, i, arr) => !(l === "" && arr[i - 1] === ""))
-    .join("\n");
+  );
+  return lines.filter((l, i, arr) => !(l === "" && arr[i - 1] === "")).join("\n");
 }

@@ -114,7 +114,7 @@ export function createRunner(deps: RunnerDeps) {
         try {
           const bug = await jira.createIssue({
             summary: `[${key} ${c.id}] ${c.actual ? truncate(c.actual, 90) : `Fails: ${truncate(c.text, 90)}`}`,
-            description: formatBugDescription(key, c, report, artifactsUrl),
+            description: formatBugDescription(key, c, report, artifactsUrl, { appUrl, runLabel }),
             issuetype: "Bug",
             labels: ["found-by-ai-qa", `parent-${key}`],
           });

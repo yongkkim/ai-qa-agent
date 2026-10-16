@@ -145,7 +145,10 @@ describe("In Testing → AI QA → results on the ticket", () => {
     const bug = await issue(bugKey);
     assert.equal(bug.fields.issuetype.name, "Bug");
     assert.ok(bug.fields.labels.includes(`parent-${key}`));
-    assert.match(bug.fields.description, /Steps to reproduce:\n1\. Type three spaces/);
+    assert.match(bug.fields.description, /\*\*Steps to reproduce:\*\*\n1\. Type three spaces/);
+    // Evidence comes right after the steps; the model that made the call is listed under Environment.
+    assert.match(bug.fields.description, /\*\*Evidence:\*\*\n!\[AC1 screenshot\]/);
+    assert.match(bug.fields.description, /\*\*Environment\*\*\nApp: http:\/\/localhost:5173\/\nTested by: AI QA agent, model `scripted\/scripted`/);
     assert.ok(existsSync(join(tmp, "artifacts", run.label!, "report.json")), "report.json saved");
   });
 

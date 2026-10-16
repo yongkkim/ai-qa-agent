@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { AgentReport } from "@ai-qa/agent";
-import { formatResultComment, isProviderOutage } from "../src/report.js";
+import { formatBugDescription, formatResultComment, isProviderOutage } from "../src/report.js";
 
 const base: AgentReport = {
   ticketKey: "QA-1",
@@ -37,5 +37,7 @@ describe("result comment", () => {
   it("shows every model used when a fallback happened", () => {
     const report: AgentReport = { ...base, verdict: "passed", modelsUsed: ["gemini-big", "gemini-small"] };
     assert.match(formatResultComment(report, "r", "u"), /`gemini\/gemini-big → gemini-small`/);
+    const c = { id: "AC1", text: "x", status: "fail" as const, screenshot: "AC1.png" };
+    assert.match(formatBugDescription("QA-1", c, report, "u"), /Tested by: AI QA agent, model `gemini\/gemini-big → gemini-small`/);
   });
 });
