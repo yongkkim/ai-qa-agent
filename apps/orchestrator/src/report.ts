@@ -64,6 +64,7 @@ export function formatResultComment(report: AgentReport, runLabel: string, artif
     }
     if (c.status === "fail" && c.sameDefectAs) lines.push(`    Same defect as ${c.sameDefectAs}.`);
     if (c.notes && c.status !== "pass") lines.push(`    Notes: ${c.notes}`);
+    if (c.notRetested) lines.push(`    ⚠️ Not re-tested after defects were found: this pass may come from a setup that could not reveal them; please double-check this one.`);
     if (c.grounded === false) lines.push(`    ⚠️ The agent's evidence could not be verified on the page; please double-check this one.`);
     if ((c.status === "fail" || c.status === "blocked") && c.screenshot) lines.push(`    ![${c.id} screenshot](${artifactsUrl}/${c.screenshot})`);
   }

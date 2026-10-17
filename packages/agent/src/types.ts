@@ -28,6 +28,8 @@ export interface CriterionResult {
   howTested?: string;
   /** Re-tested during the end-of-run defect review (its earlier check was too weak to reveal a defect found later). */
   retested?: boolean;
+  /** A pass the defect review asked to re-test that the agent never re-tested (so it may be a weak pass). */
+  notRetested?: boolean;
   /** For a failure caused by the same defect as an earlier failed criterion: that criterion's id (used to file one bug per defect). */
   sameDefectAs?: string;
   /** The test oracle declared before testing, and whether the page confirmed it when the verdict was recorded. */

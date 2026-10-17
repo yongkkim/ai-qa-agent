@@ -27,6 +27,8 @@ const ACTION_TOOLS = new Set(["click", "type", "press_key", "select_option", "na
 const MAX_GROUNDING_REJECTIONS = 2;
 /** How many times a PASS that the page contradicts is bounced back before it is downgraded to "blocked". */
 const MAX_ORACLE_REJECTIONS = 2;
+/** How many times finish is refused while defect-review re-tests are still missing. */
+const MAX_REVIEW_BOUNCES = 2;
 
 interface TestPlan {
   howToTest: string;
@@ -77,6 +79,9 @@ export async function runAgent(ticket: TicketUnderTest, opts: AgentOptions): Pro
   /** Set once the agent has been asked to review its passes against the defects it found. */
   let reviewRequested = false;
   const repeatWarned = new Set<string>();
+  /** Passes the defect review asked to re-test that have not been re-recorded yet. */
+  const awaitingRetest = new Set<string>();
+  let reviewBounces = 0;
   let error: string | undefined;
   let lastPage = "";
   let snapshotsThisTurn = 0;
@@ -162,7 +167,20 @@ export async function runAgent(ticket: TicketUnderTest, opts: AgentOptions): Pro
         const review = !reviewRequested ? buildDefectReview(criteria) : undefined;
         if (review) {
           reviewRequested = true;
-          return { ok: false, outcome: "not finished yet: review your passes against the defects you found.", detail: review };
+          for (const c of criteria) if (c.status === "pass") awaitingRetest.add(c.id);
+          return { ok: false, outcome: "not finished yet: re-test your passes against the defects you found.", detail: review };
+        }
+        // The re-test is required, not optional: given the choice, a model tends to declare its own check good enough.
+        if (awaitingRetest.size && reviewBounces++ < MAX_REVIEW_BOUNCES) {
+          const ids = [...awaitingRetest].join(", ");
+          return {
+            ok: false,
+            outcome: `not finished: ${ids} still need${awaitingRetest.size === 1 ? "s" : ""} a re-test in the state where the defect appeared (plan_test, perform the steps, record_result), then call finish.`,
+          };
+        }
+        for (const id of awaitingRetest) {
+          const c = criteria.find((x) => x.id === id)!;
+          c.notRetested = true;
         }
         finished = true;
         summary = String(a.summary ?? "").trim();
@@ -278,6 +296,7 @@ export async function runAgent(ticket: TicketUnderTest, opts: AgentOptions): Pro
       sameDefectAs = other.sameDefectAs ?? other.id; // point at the group's first criterion
     }
 
+    awaitingRetest.delete(target.id);
     const screenshot = `${target.id}.png`;
     // Evidence: scroll the quoted text into view first, so a counter or message below the fold is in the bug report.
     await browser.screenshot(join(runDir, screenshot), { showText: observed || undefined }).catch(() => {});
@@ -436,7 +455,7 @@ ${fails}
 Criteria you passed, and how:
 ${passes}
 
-For each pass, ask: if the defect(s) above also affected this criterion, would the way I tested it have shown that? If the setup could not have revealed it (for example it never created the state in which the defect appears), re-test that criterion now with a setup that would (a different setup from the one that passed; repeating it gives the same result): call plan_test again, perform the steps, and record_result again (use same_defect_as if it fails for the same reason). If your check would have caught it, keep the pass. Then call finish.`;
+Re-test each of these passes now, in the state in which the defect(s) appeared (for example with the kind of items or steps that exposed them), using a different setup from the one that passed: repeating it gives the same result. For each: call plan_test again, perform the steps, and record_result again (pass if it still works; fail with same_defect_as if it breaks for the same reason). Then call finish.`;
 }
 
 const sameText = (a: string, b: string) => a.trim().toLowerCase().replace(/\s+/g, " ") === b.trim().toLowerCase().replace(/\s+/g, " ");
