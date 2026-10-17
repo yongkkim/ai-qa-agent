@@ -233,6 +233,8 @@ The orchestrator talks to Jira only through `apps/orchestrator/src/jira.ts`, whi
   | A pass was checked too weakly and **no** criterion failed | Not covered yet (see the design below) |
 
   In the last case nothing points back at the weak test, so a false pass can still slip through, for example a counter checked only while every item is active, where a wrong formula gives the right number.
+
+  Observed in real runs (counter bug, `gemini-3.5-flash-lite`): the defect review is optional by design, and the model sometimes keeps a weak pass (AC1 "passed" with two active todos while AC2 and AC3 failed). The ticket still fails correctly, since the same defect is reported through AC2/AC3; only AC1's line is too optimistic. **Tried and reverted:** making the re-test mandatory. The model then *looked for* failures and produced a false one: AC5 ("Clear completed keeps active todos") was failed with an invented cause, though the app's Clear completed is correct. A false failure costs more than an optimistic pass inside an already-failing ticket (a wrong bug for a developer to chase, and less trust in every result), so the review stays a prompt, not an obligation. The fix belongs in the plan itself (the design below), not in pressure to re-test.
 - **Snapshot coverage.** The accessibility snapshot covers standard HTML controls and ARIA roles. Canvas-heavy UIs, iframes and visual-only checks (layout, colours) would need a vision model; the provider interface can be extended with image input.
 - **One run at a time.** Fine for a demo; a team setup would run browser workers in parallel.
 
