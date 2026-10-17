@@ -163,8 +163,8 @@ If misconfigured, the orchestrator warns at startup, and a triggered ticket gets
 
 | Ticket | Feature | Planted bug (`npm run dev:buggy`) |
 |---|---|---|
-| QA-101 | Add a todo with input validation | `empty-input`: whitespace-only text is accepted |
-| QA-102 | Filter All / Active / Completed | `filter-active`: "Active" also shows completed todos (off by default; add it to `VITE_BUGS` in `apps/sample-app/.env.buggy`) |
+| QA-101 | Add a todo with input validation | `empty-input`: whitespace-only text is accepted (off by default; add it to `VITE_BUGS` in `apps/sample-app/.env.buggy`) |
+| QA-102 | Filter All / Active / Completed | `filter-active`: "Active" also shows completed todos |
 | QA-103 | Items-left counter and Clear completed | `counter`: completed todos are counted as "left" |
 
 Bugs are toggled with an env var and never shown in the UI, so the agent cannot read the answer off the page.
