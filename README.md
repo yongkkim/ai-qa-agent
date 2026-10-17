@@ -215,6 +215,7 @@ All settings are in `.env.example` with comments. The main ones:
 | `QA_TRIGGER_STATUS` | `In Testing` | Status that starts a run |
 | `QA_STATUS_ON_PASS` / `QA_STATUS_ON_FAIL` | `Done` / `In Progress` | Where tickets go afterwards |
 | `QA_BUG_TICKETS` | `per-defect` | `per-defect`: one bug per underlying defect · `per-criterion`: one bug per failed criterion · `off`: no bug tickets |
+| `MOCK_JIRA_KEEP_DATA` | `false` | The mock board resets to the seed tickets on every start; `true` keeps the last session's board |
 | `JIRA_BASE_URL` (+ `JIRA_EMAIL`, `JIRA_API_TOKEN`) | `http://localhost:4000` | Point at a real Jira site |
 
 ## Using a real Jira

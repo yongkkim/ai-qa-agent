@@ -8,5 +8,7 @@ config({ path: resolve(here, "../../../.env") });
 
 export const PORT = Number(process.env.MOCK_JIRA_PORT ?? 4000);
 export const WEBHOOK_URL = process.env.JIRA_WEBHOOK_URL ?? "http://localhost:4100/webhooks/jira";
+/** Keep the board from the last session instead of starting from the seed tickets. */
+export const KEEP_DATA = process.env.MOCK_JIRA_KEEP_DATA === "true";
 export const DATA_FILE = resolve(here, "../data/db.json");
 export const PUBLIC_DIR = resolve(here, "../public");

@@ -8,7 +8,7 @@ LLM output is non-deterministic, so when a result is unexpected, re-run that cas
 
 - After changing `.env` or `apps/sample-app/.env.buggy`, **restart terminal 1** (`Ctrl+C`, then start it again). Both files are only read at startup.
 - Check terminal 1's startup log before running a case: the `[app]` line `[sample-app] planted bugs ON: …` (or `no planted bugs`) must match the case's setup.
-- `npm run demo` resets the board to the seed tickets (QA-101, QA-102, QA-103) before it starts. When testing by hand, run `npm run jira:reset` first.
+- Starting terminal 1 resets the board to the seed tickets (QA-101, QA-102, QA-103), and so does `npm run demo`. To reset by hand without restarting, use the board's reset button or `npm run jira:reset`.
 - Planted bugs are set by one line in `apps/sample-app/.env.buggy`, e.g. `VITE_BUGS=empty-input,counter`. Order doesn't matter.
 
 | Bug id | Breaks ticket | Effect |
