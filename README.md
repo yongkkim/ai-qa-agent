@@ -13,7 +13,7 @@ An AI agent that does the manual QA pass for you. When a Jira ticket moves to **
 QA-101  Add a todo with input validation          →  drag to "In Testing"
 
 🤖 AI QA result: ❌ FAILED · 5/6 passed, 1 failed
-Model gemini/gemini-3.8-flash · 24 steps · 26 LLM calls · 1m 48s
+Model gemini/gemini-3.5-flash-lite · 24 steps · 26 LLM calls · 1m 48s
 
 ✅ AC1 Typing text into the "New todo" input and clicking "Add" adds the todo to the list.
     Evidence: Buy milk
@@ -136,7 +136,7 @@ Everything model-related lives in `.env` (created by `npm run setup`, or copy `.
 
 | Provider | `.env` | Notes |
 |---|---|---|
-| Google Gemini | `LLM_PROVIDER=gemini`<br>`LLM_MODEL=gemini-3.8-flash`<br>`LLM_API_KEY=...` | Free API key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey). A Gemini app subscription does not include API access; the key is separate. If the free tier rejects a model (HTTP 429, quota 0), try `gemini-3.5-flash-lite`. |
+| Google Gemini | `LLM_PROVIDER=gemini`<br>`LLM_MODEL=gemini-3.5-flash-lite`<br>`LLM_API_KEY=...` | Free API key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey). A Gemini app subscription does not include API access; the key is separate. The default is `gemini-3.5-flash-lite`, with `gemini-3.6-flash` as fallback, because newer flash models were often overloaded (HTTP 503) on the free tier. A stronger model designs sharper tests (see Limitations), so set a bigger one in `LLM_MODEL` if it is available to you. |
 | OpenAI | `LLM_PROVIDER=openai`<br>`LLM_MODEL=<model id>`<br>`LLM_API_KEY=sk-...` | Any chat model with tool calling. |
 | Anthropic | `LLM_PROVIDER=anthropic`<br>`LLM_MODEL=claude-sonnet-5-5`<br>`LLM_API_KEY=sk-ant-...` | |
 | Ollama (local) | `LLM_PROVIDER=ollama`<br>`LLM_MODEL=qwen3` | No key, runs on your machine. Small models may need `LLM_TOOL_MODE=json`. |
@@ -146,14 +146,14 @@ Check a configuration before running the agent:
 
 ```bash
 npm run llm:check
-#   ✓ provider=gemini model=gemini-3.8-flash toolMode=native
+#   ✓ provider=gemini model=gemini-3.5-flash-lite toolMode=native fallback=gemini-3.6-flash
 #   ✓ API key works — model replied "OK" in 812 ms
 #   ✓ tool calling works — got click({ref: "e7"}) in 954 ms
 ```
 
 **Adding a provider** means implementing one method, `chat({ system, messages, tools }) → { text, toolCalls, usage }`, in `packages/llm/src/providers/` and registering it in `factory.ts`. The agent never sees provider-specific formats. Models without native tool calling are handled by `LLM_TOOL_MODE=json`, which describes the tools in the prompt and parses a JSON reply back into a tool call.
 
-**When the model is busy.** Hosted models sometimes answer `HTTP 503 (overloaded)` or `429 (rate limit)`, especially on free tiers. Each request is retried with exponential backoff (`LLM_MAX_RETRIES`, default 5 ≈ 1 minute). If the model is still unavailable, the agent switches to the next model in `LLM_FALLBACK_MODELS` and keeps going (the comment shows e.g. `gemini-3.8-flash → gemini-3.5-flash-lite`). If every model is down, the ticket is marked **NOT TESTED**, stays in *In Testing*, and the comment says plainly that this is an AI-provider problem, not a product failure, so a developer is never sent a false bug.
+**When the model is busy.** Hosted models sometimes answer `HTTP 503 (overloaded)` or `429 (rate limit)`, especially on free tiers. Each request is retried with exponential backoff (`LLM_MAX_RETRIES`, default 5 ≈ 1 minute). If the model is still unavailable, the agent switches to the next model in `LLM_FALLBACK_MODELS` and keeps going (the comment shows e.g. `gemini-3.5-flash-lite → gemini-3.6-flash`). If every model is down, the ticket is marked **NOT TESTED**, stays in *In Testing*, and the comment says plainly that this is an AI-provider problem, not a product failure, so a developer is never sent a false bug.
 
 If misconfigured, the orchestrator warns at startup, and a triggered ticket gets a comment explaining exactly what to fix instead of failing silently.
 

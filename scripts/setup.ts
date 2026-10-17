@@ -31,7 +31,7 @@ interface Preset {
 }
 
 const PRESETS: Preset[] = [
-  { id: "gemini", label: "Google Gemini (free API key, recommended)", model: "gemini-3.8-flash", fallback: "gemini-3.5-flash-lite", needsKey: true, keyUrl: "https://aistudio.google.com/apikey" },
+  { id: "gemini", label: "Google Gemini (free API key, recommended)", model: "gemini-3.5-flash-lite", fallback: "gemini-3.6-flash", needsKey: true, keyUrl: "https://aistudio.google.com/apikey" },
   { id: "openai", label: "OpenAI", model: "", needsKey: true, keyUrl: "https://platform.openai.com/api-keys" },
   { id: "anthropic", label: "Anthropic Claude", model: "claude-sonnet-5-5", needsKey: true, keyUrl: "https://console.anthropic.com/settings/keys" },
   { id: "ollama", label: "Ollama (local model, no key)", model: "qwen3", needsKey: false, baseUrl: "http://localhost:11434/v1" },
@@ -91,7 +91,8 @@ async function main() {
   let key = "";
   if (preset.needsKey) {
     if (preset.keyUrl) console.log(dim(`Get a key at ${preset.keyUrl}`));
-    while (!key) key = await askSecret("Paste your API key (hidden)");
+    key = await askSecret("Paste your API key (hidden; press Enter to skip and add it to .env later)");
+    if (!key) console.log(dim(`No key saved. Add it to .env later as LLM_API_KEY=...${preset.keyUrl ? ` (get one at ${preset.keyUrl})` : ""}; the model check below will remind you.`));
   }
 
   content = setVar(content, "LLM_PROVIDER", preset.id);

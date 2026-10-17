@@ -15,6 +15,12 @@ export interface BuiltApp {
 
 const cache = new Map<string, Promise<BuiltApp>>();
 
+/**
+ * The bugs the tests expect in the "buggy" build. Pinned here instead of read from
+ * apps/sample-app/.env.buggy, so editing that file for a manual demo never breaks the tests.
+ */
+export const TEST_BUGS = "empty-input,counter";
+
 /** Builds the real sample app (normal or with planted bugs) once per test process. */
 export function buildSampleApp(mode: "normal" | "buggy"): Promise<BuiltApp> {
   if (!cache.has(mode)) {
@@ -30,6 +36,7 @@ export function buildSampleApp(mode: "normal" | "buggy"): Promise<BuiltApp> {
           mode: mode === "buggy" ? "buggy" : "production",
           logLevel: "silent",
           build: { outDir, emptyOutDir: true },
+          define: { "import.meta.env.VITE_BUGS": JSON.stringify(mode === "buggy" ? TEST_BUGS : "") },
         });
         const assets = join(outDir, "assets");
         if (!existsSync(assets)) throw new Error("sample app build produced no assets");

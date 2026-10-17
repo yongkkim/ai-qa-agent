@@ -21,7 +21,7 @@ export interface LLMConfig {
 }
 
 const DEFAULT_MODELS: Partial<Record<ProviderName, string>> = {
-  gemini: "gemini-3.8-flash",
+  gemini: "gemini-3.5-flash-lite",
   anthropic: "claude-sonnet-5-5",
 };
 
@@ -29,6 +29,12 @@ const KEY_FALLBACKS: Partial<Record<ProviderName, string>> = {
   gemini: "GEMINI_API_KEY",
   openai: "OPENAI_API_KEY",
   anthropic: "ANTHROPIC_API_KEY",
+};
+
+const KEY_URLS: Partial<Record<ProviderName, string>> = {
+  gemini: "https://aistudio.google.com/apikey",
+  openai: "https://platform.openai.com/api-keys",
+  anthropic: "https://console.anthropic.com/settings/keys",
 };
 
 const HINT = "Run `npm run setup`, or copy .env.example to .env and fill in the LLM section (see README → Choosing a model).";
@@ -48,7 +54,10 @@ export function readLLMConfig(env: NodeJS.ProcessEnv = process.env): LLMConfig {
   const fallbackVar = KEY_FALLBACKS[p];
   const apiKey = (env.LLM_API_KEY ?? "").trim() || (fallbackVar ? (env[fallbackVar] ?? "").trim() : "") || undefined;
   const needsKey = p === "gemini" || p === "openai" || p === "anthropic";
-  if (needsKey && !apiKey) throw new LLMConfigError(`LLM_API_KEY is empty, but provider "${p}" needs an API key. ${HINT}`);
+  if (needsKey && !apiKey) throw new LLMConfigError(
+      `LLM_API_KEY is empty, but provider "${p}" needs an API key.` +
+        (KEY_URLS[p] ? ` Get one at ${KEY_URLS[p]}, then put it in .env as LLM_API_KEY=... (or run \`npm run setup\` again).` : ` ${HINT}`),
+    );
 
   let baseUrl = (env.LLM_BASE_URL ?? "").trim() || undefined;
   if (p === "ollama") baseUrl ??= "http://localhost:11434/v1";
