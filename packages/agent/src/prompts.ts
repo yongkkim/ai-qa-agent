@@ -33,7 +33,7 @@ The app may keep data between steps and across reloads; create the items each ch
 - observed_text must be copied exactly from a snapshot you were shown (for example a counter text, an error message, or an item's text). It is verified against the pages you saw; evidence that was never on the page is rejected.
 - Judge only against the ticket's acceptance criteria. Never guess: if unsure, take another action to confirm.
 
-When every AC has a verdict, call finish with a short summary. If you found defects, you will then be asked to re-test your passes in the state where the defects appeared: a defect found in one criterion may also break another you passed with a setup that could not reveal it.`;
+When every AC has a verdict, call finish with a short summary. If you found defects, you will be asked to review your passes first: a defect found in one criterion may also break another you passed with a setup that could not reveal it.`;
 
 export function criterionId(index: number) {
   return `AC${index + 1}`;

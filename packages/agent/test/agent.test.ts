@@ -325,7 +325,7 @@ describe("defect review before finishing", () => {
       { tool: "finish", args: { summary: "done" } },
     ];
     const { report } = await run("buggy", ACS, script);
-    assert.match(review, /Re-test each of these passes/);
+    assert.match(review, /review your passes/);
     assert.match(review, /Defects found:\n- AC2: expected 1 item left; actual 2 items left/);
     assert.match(review, /- AC1 .*checked by "Add two todos and check the footer", expected "2 items left"/);
     const ac1 = report.criteria[0];
@@ -372,24 +372,11 @@ describe("defect review before finishing", () => {
     assert.equal(report.criteria[0].retested, true);
   });
 
-  it("does not accept 'my check was fine': finish is refused until the passes are re-tested", async () => {
-    // A real run: after the review the model just called finish again, keeping its weak pass.
-    let refusal = "";
-    const script: ScriptStep[] = [
-      ...realRun,
-      { tool: "finish", args: { summary: "a" } },
-      { tool: "finish", args: { summary: "b" } },
-      (req) => {
-        refusal = lastToolResult(req);
-        return { tool: "finish", args: { summary: "c" } };
-      },
-      { tool: "finish", args: { summary: "d" } },
-    ];
-    const { report } = await run("buggy", ACS, script);
-    assert.match(refusal, /not finished: AC1 still needs a re-test/);
-    assert.equal(report.summary, "d", "gives up after two refusals instead of looping");
+  it("asks only once, and keeps passes the agent confirms", async () => {
+    const { report } = await run("buggy", ACS, [...realRun, { tool: "finish", args: { summary: "a" } }, { tool: "finish", args: { summary: "b" } }]);
+    assert.equal(report.summary, "b");
     assert.equal(report.criteria[0].status, "pass");
-    assert.equal(report.criteria[0].notRetested, true);
+    assert.equal(report.criteria[0].retested, undefined);
   });
 
   it("has nothing to review when there are no failures or no passes", () => {
