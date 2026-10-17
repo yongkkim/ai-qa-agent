@@ -121,6 +121,8 @@ To watch it catch bugs, start the app with planted bugs instead:
 npm run dev:buggy
 ```
 
+> **For your testing convenience, the mock Jira board is reset every time you run `npm run dev` or `npm run dev:buggy`:** every run starts from the same seed tickets (QA-100 *Done*, QA-101/102 *In Progress*, QA-103 *To Do*). Restarting also clears the previous run's comments and bug tickets, so check results before you restart. To reset without restarting, use the board's reset button (or `npm run jira:reset`); to keep the board between restarts, set `MOCK_JIRA_KEEP_DATA=true` in `.env`.
+
 | URL | |
 |---|---|
 | http://localhost:4000 | Mock Jira board |
