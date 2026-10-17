@@ -16,10 +16,11 @@ export interface BrowserDriver {
   press(key: string): Promise<void>;
   selectOption(ref: string, value: string): Promise<void>;
   /**
-   * Save a screenshot. fullPage captures below the fold too, but in Chromium it briefly resizes the
-   * page when it is taller than the window, which shows as a jump in a visible browser.
+   * Save a screenshot of the visible window. showText first scrolls that text into view (best effort),
+   * so evidence below the fold is in the picture. Full-page captures are avoided on purpose: in Chromium
+   * they briefly resize a page taller than the window, which shows as a jump in a visible browser.
    */
-  screenshot(path: string, opts?: { fullPage?: boolean }): Promise<void>;
+  screenshot(path: string, opts?: { showText?: string }): Promise<void>;
   /** Console errors, uncaught exceptions and failed requests since the last call. */
   drainIssues(): string[];
   close(): Promise<void>;

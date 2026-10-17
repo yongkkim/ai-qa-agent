@@ -124,9 +124,16 @@ export class PlaywrightDriver implements BrowserDriver {
     await this.settle();
   }
 
-  async screenshot(path: string, opts: { fullPage?: boolean } = {}) {
+  async screenshot(path: string, opts: { showText?: string } = {}) {
     mkdirSync(dirname(path), { recursive: true });
-    await this.page.screenshot({ path, fullPage: opts.fullPage ?? false });
+    if (opts.showText) {
+      await this.page
+        .getByText(opts.showText)
+        .first()
+        .scrollIntoViewIfNeeded({ timeout: 1000 })
+        .catch(() => {});
+    }
+    await this.page.screenshot({ path });
   }
 
   drainIssues(): string[] {
