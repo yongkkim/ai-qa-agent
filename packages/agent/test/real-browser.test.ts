@@ -92,4 +92,28 @@ describe("agent in a real Chromium", () => {
     assert.equal(report.verdict, "failed");
     assert.deepEqual(report.criteria.map((c) => c.status), ["fail", "fail"]);
   });
+
+  it("look sends a real PNG of the window to the model", async (t) => {
+    if (!available) return t.skip("Chromium not installed (npx playwright install chromium)");
+    const browser = await PlaywrightDriver.launch(launchOpts);
+    try {
+      let image: { mimeType: string; data: string } | undefined;
+      const llm = new ScriptedProvider([
+        { tool: "look", args: {} },
+        (req) => {
+          const last = req.messages.at(-1);
+          image = last?.role === "tool" ? last.images?.[0] : undefined;
+          return { tool: "finish", args: { summary: "done" } };
+        },
+        { tool: "finish", args: { summary: "done" } },
+      ]);
+      const runDir = mkdtempSync(join(tmpdir(), "ai-qa-real-"));
+      await runAgent({ key: "QA-R", summary: "look", description: "", criteria: ["Looks right"], appUrl: servers.normal.url }, { llm, browser, runDir });
+      assert.equal(image?.mimeType, "image/png");
+      assert.equal(Buffer.from(image!.data, "base64").subarray(1, 4).toString(), "PNG");
+      assert.ok(existsSync(join(runDir, "look-01.png")));
+    } finally {
+      await browser.close();
+    }
+  });
 });

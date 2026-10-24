@@ -31,7 +31,7 @@ function issue(
 
 export function seedDb(): Db {
   return {
-    nextIssueNumber: 104,
+    nextIssueNumber: 105,
     nextId: 1,
     issues: [
       issue(
@@ -97,6 +97,21 @@ Acceptance Criteria:
 3. Completing or un-completing a todo updates the counter immediately.
 4. A "Clear completed (<M>)" button appears only when at least one todo is completed, where M is the number of completed todos.
 5. Clicking "Clear completed" removes all completed todos and keeps the active ones.
+`,
+      ),
+      issue(
+        104,
+        "Visual feedback for errors and completed todos",
+        "To Do",
+        `
+As a user, I want errors and finished todos to be obvious at a glance.
+
+Test URL: ${APP_URL}
+
+Acceptance Criteria:
+1. When an empty or whitespace-only todo is submitted, the error message "Todo cannot be empty." is shown in red text.
+2. While that error is shown, the input field has a red border.
+3. The text of a completed todo is shown struck through (a line through the text).
 `,
       ),
     ],

@@ -38,7 +38,8 @@ h1 { margin: 0 0 16px; font-size: 28px; letter-spacing: -0.02em; }
   border: 1px solid var(--line);
   border-radius: 8px;
 }
-.add input[aria-invalid="true"] { border-color: var(--danger); }
+/* The focus ring stays red too: the cursor is still in the field when the error appears. */
+.add input[aria-invalid="true"] { border-color: var(--danger); outline-color: var(--danger); }
 
 button {
   padding: 8px 14px;
@@ -51,6 +52,7 @@ button {
 .add button { background: var(--accent); color: #fff; border-color: var(--accent); }
 
 .error { color: var(--danger); margin: 8px 0 0; font-size: 14px; }
+.error.error-muted { color: var(--muted); } /* planted bug "error-style" */
 
 .filters { display: flex; gap: 6px; margin: 20px 0 12px; }
 .filters .selected { background: var(--ink); color: #fff; border-color: var(--ink); }

@@ -3,7 +3,7 @@
  * resets the board, moves each ticket to In Testing exactly like a person
  * dragging a card, waits for the AI QA agent, and prints its verdicts.
  *
- *   npm run demo                 # QA-101, QA-102, QA-103
+ *   npm run demo                 # QA-101, QA-102, QA-103, QA-104
  *   npm run demo -- QA-101       # just one ticket
  *   npm run demo -- --no-reset   # keep the current board
  */
@@ -22,7 +22,7 @@ const PER_TICKET_TIMEOUT_MS = 15 * 60_000;
 const args = process.argv.slice(2);
 const reset = !args.includes("--no-reset");
 const keys = args.filter((a) => !a.startsWith("--"));
-if (!keys.length) keys.push("QA-101", "QA-102", "QA-103");
+if (!keys.length) keys.push("QA-101", "QA-102", "QA-103", "QA-104");
 
 const c = {
   bold: (s: string) => `\x1b[1m${s}\x1b[0m`,

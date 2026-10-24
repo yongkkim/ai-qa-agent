@@ -101,6 +101,13 @@ export class JsdomDriver implements BrowserDriver {
     await tick();
   }
 
+  /** jsdom cannot render pixels: a 1×1 PNG stands in for the screenshot the model would see. */
+  async capture() {
+    this.captures++;
+    return Buffer.from(TINY_PNG, "base64");
+  }
+  captures = 0;
+
   async screenshot(path: string) {
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, "fake screenshot");
@@ -117,3 +124,5 @@ export class JsdomDriver implements BrowserDriver {
     this.dom?.window.close();
   }
 }
+
+const TINY_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";

@@ -18,6 +18,8 @@ export interface LLMConfig {
   fallbackModels: string[];
   /** HTTP retries per request before giving up (or falling back). */
   maxRetries?: number;
+  /** The model can read screenshots (used by the agent's look tool for visual criteria). */
+  vision: boolean;
 }
 
 const DEFAULT_MODELS: Partial<Record<ProviderName, string>> = {
@@ -79,12 +81,17 @@ export function readLLMConfig(env: NodeJS.ProcessEnv = process.env): LLMConfig {
     throw new LLMConfigError(`LLM_MAX_RETRIES must be a whole number (got "${retriesRaw}").`);
   }
 
-  return { provider: p, model, apiKey, baseUrl, toolMode, fallbackModels, maxRetries };
+  // Hosted Gemini, OpenAI and Claude models read images; local and other compatible models often don't.
+  const visionRaw = (env.LLM_VISION ?? "").trim().toLowerCase();
+  if (visionRaw && visionRaw !== "true" && visionRaw !== "false") throw new LLMConfigError(`LLM_VISION must be "true" or "false" (got "${visionRaw}").`);
+  const vision = visionRaw ? visionRaw === "true" : p === "gemini" || p === "openai" || p === "anthropic";
+
+  return { provider: p, model, apiKey, baseUrl, toolMode, fallbackModels, maxRetries, vision };
 }
 
 export function createProvider(config: LLMConfig): LLMProvider {
   const build = (model: string): LLMProvider => {
-    const common = { model, baseUrl: config.baseUrl, retries: config.maxRetries };
+    const common = { model, baseUrl: config.baseUrl, retries: config.maxRetries, vision: config.vision };
     let provider: LLMProvider;
     switch (config.provider) {
       case "gemini":

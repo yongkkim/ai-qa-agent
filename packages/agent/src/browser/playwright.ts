@@ -136,6 +136,10 @@ export class PlaywrightDriver implements BrowserDriver {
     await this.page.screenshot({ path });
   }
 
+  async capture() {
+    return this.page.screenshot({ type: "png" });
+  }
+
   drainIssues(): string[] {
     const out = this.issues;
     this.issues = [];

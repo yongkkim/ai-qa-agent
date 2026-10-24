@@ -6,9 +6,10 @@ interface OAToolCall {
   type: "function";
   function: { name: string; arguments: string };
 }
+type OAContent = string | null | ({ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } })[];
 interface OAMessage {
   role: "system" | "user" | "assistant" | "tool";
-  content: string | null;
+  content: OAContent;
   tool_calls?: OAToolCall[];
   tool_call_id?: string;
 }
@@ -26,6 +27,8 @@ export interface OpenAIOptions {
   baseUrl?: string;
   /** Label used in logs and reports. */
   providerName?: string;
+  /** The model reads images. Many local and compatible models are text-only, so this is set from config. */
+  vision?: boolean;
 }
 
 /**
@@ -36,6 +39,7 @@ export interface OpenAIOptions {
 export class OpenAICompatibleProvider implements LLMProvider {
   readonly provider: string;
   readonly model: string;
+  readonly vision: boolean;
   private readonly apiKey?: string;
   private readonly baseUrl: string;
   private readonly retries?: number;
@@ -43,6 +47,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
   constructor(opts: OpenAIOptions) {
     this.provider = opts.providerName ?? "openai";
     this.model = opts.model;
+    this.vision = opts.vision ?? false;
     this.retries = opts.retries;
     this.apiKey = opts.apiKey;
     this.baseUrl = (opts.baseUrl || "https://api.openai.com/v1").replace(/\/$/, "");
@@ -80,7 +85,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
       args: parseArgs(c.function.arguments),
     }));
     return {
-      text: msg?.content ?? "",
+      text: typeof msg?.content === "string" ? msg.content : "",
       toolCalls,
       usage: { inputTokens: data.usage?.prompt_tokens ?? 0, outputTokens: data.usage?.completion_tokens ?? 0 },
       stopReason: choice?.finish_reason,
@@ -88,11 +93,23 @@ export class OpenAICompatibleProvider implements LLMProvider {
   }
 }
 
+const imagePart = (img: { mimeType: string; data: string }) => ({ type: "image_url" as const, image_url: { url: `data:${img.mimeType};base64,${img.data}` } });
+
 function toMessages(system: string, messages: Message[]): OAMessage[] {
   const out: OAMessage[] = [{ role: "system", content: system }];
+  // Tool messages can only carry text, and every tool result must directly follow its assistant turn.
+  // So images from tool results are held back and sent in one user message after the run of tool results.
+  let pendingImages: { mimeType: string; data: string }[] = [];
+  const flushImages = () => {
+    if (!pendingImages.length) return;
+    out.push({ role: "user", content: [{ type: "text", text: "Screenshot(s) requested with the look tool:" }, ...pendingImages.map(imagePart)] });
+    pendingImages = [];
+  };
   for (const m of messages) {
-    if (m.role === "user") out.push({ role: "user", content: m.content });
-    else if (m.role === "assistant") {
+    if (m.role !== "tool") flushImages();
+    if (m.role === "user") {
+      out.push({ role: "user", content: m.images?.length ? [{ type: "text", text: m.content }, ...m.images.map(imagePart)] : m.content });
+    } else if (m.role === "assistant") {
       out.push({
         role: "assistant",
         content: m.content || null,
@@ -106,8 +123,12 @@ function toMessages(system: string, messages: Message[]): OAMessage[] {
             }
           : {}),
       });
-    } else out.push({ role: "tool", tool_call_id: m.toolCallId, content: m.content });
+    } else {
+      out.push({ role: "tool", tool_call_id: m.toolCallId, content: m.content });
+      pendingImages.push(...(m.images ?? []));
+    }
   }
+  flushImages();
   return out;
 }
 

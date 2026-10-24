@@ -97,7 +97,8 @@ export function App() {
         <button type="submit">Add</button>
       </form>
       {error && (
-        <p id="todo-error" role="alert" className="error">
+        // BUG(error-style): renders the error in the muted grey used for secondary text instead of red.
+        <p id="todo-error" role="alert" className={hasBug("error-style") ? "error error-muted" : "error"}>
           {error}
         </p>
       )}

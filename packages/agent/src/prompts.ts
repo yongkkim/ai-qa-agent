@@ -25,6 +25,13 @@ Choose setups that can expose a bug. A good test is one where a broken implement
 - Wording: singular vs plural.
 The app may keep data between steps and across reloads; create the items each check needs.
 
+## Criteria about appearance
+The snapshot shows text, roles and states, but not colours, borders, strike-through or layout. For a criterion about how something looks:
+- plan_test as usual (expected_text names the element, e.g. its message) and add expected_look, e.g. "the error text is red".
+- Set up the state, then call look to see a screenshot, and judge only what is visible in it.
+- Use look only for appearance; it is slower and costs more than the snapshot.
+- If look is not available for this model, record the criterion as blocked and say it needs a visual check.
+
 ## Verdicts
 - pass: you performed the check and the page shows your planned expected_text. The code verifies this against the page; a PASS the page contradicts is rejected.
 - fail: the page shows behaviour that contradicts the AC (e.g. it shows a different number or message than your expected_text). Give expected vs actual and short steps to reproduce. A mismatch with your plan is a FAIL, not a pass with a caveat.
@@ -34,6 +41,12 @@ The app may keep data between steps and across reloads; create the items each ch
 - Judge only against the ticket's acceptance criteria. Never guess: if unsure, take another action to confirm.
 
 When every AC has a verdict, call finish with a short summary. If you found defects, you will be asked to review your passes first: a defect found in one criterion may also break another you passed with a setup that could not reveal it.`;
+
+/** Added to the system prompt for text-only models, so they don't judge appearance from the text snapshot. */
+export const NO_VISION_NOTE = `
+
+## This model cannot see images
+look is not available. You cannot check colours, borders, strike-through or layout. Record every criterion about appearance as blocked, with a note that it needs a visual check; never pass or fail it from the text snapshot.`;
 
 export function criterionId(index: number) {
   return `AC${index + 1}`;

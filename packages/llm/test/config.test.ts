@@ -38,6 +38,16 @@ describe("readLLMConfig", () => {
   });
 });
 
+describe("LLM_VISION", () => {
+  it("defaults to true for hosted multimodal providers and false for local or compatible ones", () => {
+    assert.equal(readLLMConfig({ LLM_PROVIDER: "gemini", LLM_API_KEY: "k" }).vision, true);
+    assert.equal(readLLMConfig({ LLM_PROVIDER: "ollama", LLM_MODEL: "tiny" }).vision, false);
+    assert.equal(readLLMConfig({ LLM_PROVIDER: "ollama", LLM_MODEL: "llava", LLM_VISION: "true" }).vision, true);
+    assert.equal(createProvider(readLLMConfig({ LLM_PROVIDER: "gemini", LLM_API_KEY: "k", LLM_VISION: "false" })).vision, false);
+    assert.throws(() => readLLMConfig({ LLM_PROVIDER: "gemini", LLM_API_KEY: "k", LLM_VISION: "maybe" }), /LLM_VISION/);
+  });
+});
+
 describe("fallback models", () => {
   it("builds a fallback chain from LLM_FALLBACK_MODELS (skipping the main model)", () => {
     const cfg = readLLMConfig({ LLM_PROVIDER: "gemini", LLM_API_KEY: "k", LLM_MODEL: "big", LLM_FALLBACK_MODELS: "small, big ,tiny", LLM_MAX_RETRIES: "2" });

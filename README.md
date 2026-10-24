@@ -56,7 +56,7 @@ Bugs filed: QA-104                     → ticket moved back to "In Progress"
 
 ### What the model sees
 
-Instead of screenshots, the agent gives the model a compact, accessibility-style snapshot of the page. It works with text-only models, costs a fraction of image input, and gives every control a stable handle:
+Instead of screenshots, the agent gives the model a compact, accessibility-style snapshot of the page. It costs a fraction of image input, states facts a screenshot only implies (a checkbox is `checked`, a value is three spaces), gives every control a stable handle, and is text that code can check the model's evidence against. It also works with text-only models. Screenshots are added only for criteria about appearance (see below).
 
 ```
 heading "Todos" [level 1]
@@ -75,7 +75,17 @@ text "1 item left"
 [e10] button "Clear completed (1)"
 ```
 
-The model acts through a small tool set: `plan_test`, `click(ref)`, `type(ref, text, submit?, repeat_to_length?)`, `press_key`, `select_option`, `navigate`, `reload`, `record_result`, `finish`. For every criterion it must call `plan_test` first: how it will test, and the exact text the page must show if the feature works (the test oracle), written before it looks at the result. Screenshots are still captured, as evidence for humans.
+The model acts through a small tool set: `plan_test`, `click(ref)`, `type(ref, text, submit?, repeat_to_length?)`, `press_key`, `select_option`, `navigate`, `reload`, `look`, `record_result`, `finish`. For every criterion it must call `plan_test` first: how it will test, and the exact text the page must show if the feature works (the test oracle), written before it looks at the result. Screenshots are still captured, as evidence for humans.
+
+### Criteria about appearance (the `look` tool)
+
+The snapshot shows text, roles and states, but not colours, borders, strike-through or layout. So the agent works in a hybrid way: it **always acts through the snapshot**, and for a criterion about appearance it plans an `expected_look` (e.g. "the error text is red") and calls `look`, which sends a screenshot of the window to the model. Screenshots are sent only on demand, so a run stays cheap, and only the newest one is kept in the conversation.
+
+- A visual verdict is refused until the agent has looked **after** planning (i.e. at the result, not at the page before the setup).
+- The comment marks it as `👁️ Looked: … (the model's judgment from a screenshot)` and shows that screenshot, because appearance can't be verified in code the way text can.
+- Text-only models (`LLM_VISION=false`, the default for local and other compatible models) get an explanation from `look` and record such criteria as *blocked*, never a guess.
+
+QA-104 exists to show this: its planted bug (`error-style`) renders the error message grey instead of red. The text and roles are identical, so the snapshot cannot tell the difference; only `look` can.
 
 ### Guard rails (why you can trust a verdict)
 
@@ -84,6 +94,7 @@ The model acts through a small tool set: `plan_test`, `click(ref)`, `type(ref, t
 | Sees a bug and still says "pass" (found in a real run: the counter didn't change and the model passed it anyway) | The expected result is declared up front with `plan_test`. When the model records PASS, the code checks the current page for that expected text (and for any `must_not_appear` text). A contradicted PASS is rejected; if the model insists, it becomes *blocked* for a human, never a pass. |
 | Passes a criterion with a weak setup, then finds the defect elsewhere (found in a real run: AC1 'passed' with no completed todos; AC2 then exposed the counter bug) | Before finishing, the agent is sent back once with a **defect review**: what failed, and how each pass was checked. It re-tests any pass whose setup could not have revealed those defects. Re-tested criteria are marked 🔁 in the comment. A re-test that just repeats the check that already passed (same expected text) is pushed back once, because that happened in a real run too. |
 | Tests only the trivial case (e.g. a counter with nothing completed, where a wrong formula still gives the right number) | The prompt asks for setups where a broken implementation would show something different from a working one (mixed states, before/after values, limits, items that should be hidden). |
+| Judges appearance from the text snapshot (which has no colours) | A criterion planned with `expected_look` can't be recorded until the agent has called `look` after planning; text-only models must mark it *blocked*. Visual verdicts are labelled as the model's judgment and come with the screenshot. |
 | Says "pass" without checking | `record_result` must quote `observed_text` that appeared on a page the agent actually saw. Unverifiable evidence is rejected and the model must re-check; if it insists, the verdict is kept but flagged for a human. |
 | The model's summary is optimistic | The run verdict is computed in code from per-criterion results: any fail → FAILED, all pass → PASSED, otherwise INCOMPLETE. |
 | Skips criteria | `finish` is refused while criteria have no verdict; leftovers are reported as *not tested* and the ticket stays in *In Testing* for a human. |
@@ -110,7 +121,7 @@ Then, in two terminals:
 
 ```bash
 npm run dev          # terminal 1: sample app, mock Jira and orchestrator (watch the agent's log here)
-npm run demo         # terminal 2: sends QA-101..103 to "In Testing" and prints the verdicts
+npm run demo         # terminal 2: sends QA-101..104 to "In Testing" and prints the verdicts
 ```
 
 Or do it by hand: open the board at **http://localhost:4000** and drag a card into **In Testing**. With `AGENT_HEADLESS=false` (the default from setup) a browser window opens and you can watch the agent work.
@@ -146,7 +157,7 @@ Check a configuration before running the agent:
 
 ```bash
 npm run llm:check
-#   ✓ provider=gemini model=gemini-3.5-flash-lite toolMode=native fallback=gemini-3.6-flash
+#   ✓ provider=gemini model=gemini-3.5-flash-lite toolMode=native vision=true fallback=gemini-3.6-flash
 #   ✓ API key works — model replied "OK" in 812 ms
 #   ✓ tool calling works — got click({ref: "e7"}) in 954 ms
 ```
@@ -159,13 +170,14 @@ If misconfigured, the orchestrator warns at startup, and a triggered ticket gets
 
 ## The sample app and its planted bugs
 
-`apps/sample-app` is a small React Todo app built for this project, with three feature tickets on the board:
+`apps/sample-app` is a small React Todo app built for this project, with four feature tickets on the board:
 
 | Ticket | Feature | Planted bug (`npm run dev:buggy`) |
 |---|---|---|
 | QA-101 | Add a todo with input validation | `empty-input`: whitespace-only text is accepted (off by default; add it to `VITE_BUGS` in `apps/sample-app/.env.buggy`) |
 | QA-102 | Filter All / Active / Completed | `filter-active`: "Active" also shows completed todos |
 | QA-103 | Items-left counter and Clear completed | `counter`: completed todos are counted as "left" |
+| QA-104 | Visual feedback (red error, red border, strike-through) | `error-style`: the error message is grey instead of red. Only a screenshot shows it (see *Criteria about appearance*) |
 
 Bugs are toggled with an env var and never shown in the UI, so the agent cannot read the answer off the page.
 
@@ -177,15 +189,15 @@ Bugs are toggled with an env var and never shown in the UI, so the agent cannot 
 npm test
 ```
 
-40 tests, no API key or network needed. A scripted fake model stands in for the LLM, so the agent loop is deterministic:
+About 70 tests, no API key or network needed. A scripted fake model stands in for the LLM, so the agent loop is deterministic:
 
 - **Full pipeline**: real mock Jira over HTTP → webhook → orchestrator → agent testing the **real built sample app** (in jsdom) → comment, labels, transition and bug ticket asserted on the ticket. Both outcomes are covered: the same scripted tester passes the correct build and catches the bug in the buggy build.
 - **Real browser**: the same agent in real Chromium via Playwright, against the built app over HTTP. Runs whenever Chromium is installed, otherwise skipped.
-- **Guard rails**: evidence grounding, early-finish refusal, step limit, origin restriction, stale refs, model errors.
-- **Model adapters**: request/response mapping for Gemini (including thought signatures), OpenAI-compatible and Anthropic, retries, error messages, JSON tool fallback, config validation.
+- **Guard rails**: test oracle, evidence grounding, defect review, early-finish refusal, step limit, origin restriction, stale refs, model errors, and the visual rules (no visual verdict without a fresh `look`; text-only models can't look).
+- **Model adapters**: request/response mapping for Gemini (including thought signatures), OpenAI-compatible and Anthropic, how each sends a screenshot, retries, error messages, JSON tool fallback, config validation.
 - **Page snapshot**: roles, names, states, whitespace in values, ref regeneration, persistence across reloads.
 
-**Manual test plan:** [TESTING.md](TESTING.md) covers the end-to-end checks with a real model (no-bug run, each planted bug, bug-ticket modes, fresh-clone setup, misconfiguration, manual triggers) with space to record results.
+**Manual test plan:** [TESTING.md](TESTING.md) covers the end-to-end checks with a real model (no-bug run, each planted bug, bug-ticket modes, fresh-clone setup, misconfiguration, manual triggers, visual checks).
 
 ## Project structure
 
@@ -208,6 +220,7 @@ All settings are in `.env.example` with comments. The main ones:
 |---|---|---|
 | `LLM_PROVIDER` / `LLM_MODEL` / `LLM_API_KEY` / `LLM_BASE_URL` | | Which model (see above) |
 | `LLM_TOOL_MODE` | `native` | `json` for models without tool calling |
+| `LLM_VISION` | `true` for Gemini, OpenAI, Anthropic; `false` otherwise | Whether the model can read screenshots (the `look` tool for criteria about appearance) |
 | `LLM_FALLBACK_MODELS` | | Same-provider models to switch to when the main one is overloaded |
 | `LLM_MAX_RETRIES` | `5` | Retries per request on 429/5xx/network errors |
 | `AGENT_HEADLESS` | `true` (`.env.example` sets `false`) | Show the browser while testing |
@@ -240,7 +253,7 @@ The orchestrator talks to Jira only through `apps/orchestrator/src/jira.ts`, whi
   Observed in real runs (counter bug, `gemini-3.5-flash-lite`): the defect review is optional by design, and the model sometimes keeps a weak pass (AC1 "passed" with two active todos while AC2 and AC3 failed). The ticket still fails correctly, since the same defect is reported through AC2/AC3; only AC1's line is too optimistic. **Tried and reverted:** making the re-test mandatory. The model then *looked for* failures and produced a false one: AC5 ("Clear completed keeps active todos") was failed with an invented cause, though the app's Clear completed is correct. A false failure costs more than an optimistic pass inside an already-failing ticket (a wrong bug for a developer to chase, and less trust in every result), so the review stays a prompt, not an obligation. The fix belongs in the plan itself (the design below), not in pressure to re-test.
 
   The uncovered case happens too: in some runs with all three bugs planted, the agent passed **all** of QA-103 by testing the counter only with active todos, so the counter bug slipped through and the ticket went to *Done*. The same setup caught it in other runs. Treat a single run as a sample, not a guarantee: stronger models choose discriminating setups more consistently, and the design below is the planned fix.
-- **Snapshot coverage.** The accessibility snapshot covers standard HTML controls and ARIA roles. Canvas-heavy UIs, iframes and visual-only checks (layout, colours) would need a vision model; the provider interface can be extended with image input.
+- **Snapshot coverage.** The accessibility snapshot covers standard HTML controls and ARIA roles; iframes and canvas-drawn UIs are not in it. Appearance is checked with `look`, but that verdict is the model's judgment from a screenshot, not a code-verified fact like the text oracle, and it is only as good as the model's eyesight. Pixel-exact checks against a design (spacing, exact colours) would be better served by visual regression testing (`toHaveScreenshot`) alongside the agent.
 - **One run at a time.** Fine for a demo; a team setup would run browser workers in parallel.
 
 ### Next: make every test prove it can fail (designed, not built yet)
@@ -259,4 +272,4 @@ Why it is deferred: it closes the gap in the table above for any app, and costs 
 - Export a passing run as a replayable Playwright test, turning exploratory AI runs into regression tests.
 - An HTML run report with the step timeline and screenshots.
 - Skip a model for a few minutes after it returns 503 (circuit breaker), instead of retrying it on every ticket.
-- Vision input for visual criteria.
+- Pixel-level visual regression (`toHaveScreenshot`) for designs that must match exactly, next to the model's `look` judgments.

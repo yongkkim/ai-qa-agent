@@ -28,10 +28,16 @@ export interface ToolCall {
   meta?: Record<string, unknown>;
 }
 
+/** An image sent to the model alongside text (base64, no data: prefix). Only sent to providers with `vision`. */
+export interface ImageInput {
+  mimeType: "image/png" | "image/jpeg";
+  data: string;
+}
+
 export type Message =
-  | { role: "user"; content: string }
+  | { role: "user"; content: string; images?: ImageInput[] }
   | { role: "assistant"; content: string; toolCalls?: ToolCall[] }
-  | { role: "tool"; toolCallId: string; name: string; content: string };
+  | { role: "tool"; toolCallId: string; name: string; content: string; images?: ImageInput[] };
 
 export interface ChatRequest {
   system: string;
@@ -57,6 +63,8 @@ export interface LLMProvider {
   /** e.g. "gemini", "openai", "anthropic", "ollama" */
   readonly provider: string;
   readonly model: string;
+  /** True when the model can read images (screenshots). Text-only models leave it false. */
+  readonly vision?: boolean;
   chat(request: ChatRequest): Promise<ChatResponse>;
 }
 

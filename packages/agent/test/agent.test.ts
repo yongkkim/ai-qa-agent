@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ScriptedProvider, type ScriptStep } from "@ai-qa/llm";
+import { ScriptedProvider, type Message, type ScriptStep } from "@ai-qa/llm";
 import { buildDefectReview, computeVerdict, isGrounded, pruneOldSnapshots, runAgent } from "../src/agent.js";
 import { PAGE_MARKER } from "../src/prompts.js";
 import type { TicketUnderTest } from "../src/types.js";
@@ -416,5 +416,91 @@ describe("helpers", () => {
     assert.ok(!messages[0].content.includes("page 1"));
     assert.ok(!messages[1].content.includes("page 2"));
     assert.ok(messages[2].content.endsWith("page 3"));
+  });
+});
+
+describe("visual criteria (the look tool)", () => {
+  const RED = ['When a whitespace-only todo is submitted, the error message "Todo cannot be empty." is shown in red text.'];
+  const visualPlan: ScriptStep = {
+    tool: "plan_test",
+    args: { criterion: "AC1", how_to_test: "submit spaces, look at the error", expected_text: "Todo cannot be empty.", expected_look: "the error text is red" },
+  };
+  const pass = { tool: "record_result", args: { criterion: "AC1", status: "pass", observed_text: "Todo cannot be empty." } };
+
+  it("won't accept a verdict about appearance until the agent has looked, then sends the screenshot to the model", async () => {
+    let refusal = "";
+    let sawImage = false;
+    const script: ScriptStep[] = [
+      visualPlan,
+      addTodo("   "),
+      pass,
+      (req) => {
+        refusal = lastToolResult(req);
+        return { tool: "look", args: { what: "colour of the error" } };
+      },
+      (req) => {
+        const last = req.messages.at(-1);
+        sawImage = last?.role === "tool" && last.images?.[0]?.mimeType === "image/png";
+        return pass;
+      },
+      { tool: "finish", args: { summary: "done" } },
+    ];
+    const { report, browser } = await run("normal", RED, script);
+    assert.match(refusal, /is about appearance .* Call look/);
+    assert.ok(sawImage, "the screenshot reached the model");
+    assert.equal(browser.captures, 1);
+    const ac1 = report.criteria[0];
+    assert.equal(ac1.status, "pass");
+    assert.deepEqual(ac1.visual, { expected: "the error text is red", screenshot: "look-04.png" });
+    assert.ok(existsSync(join(report.runDir, "look-04.png")));
+  });
+
+  it("a look taken before the plan doesn't count (it shows the page before the setup)", async () => {
+    let refusal = "";
+    const script: ScriptStep[] = [
+      { tool: "look", args: {} },
+      visualPlan,
+      addTodo("   "),
+      pass,
+      (req) => {
+        refusal = lastToolResult(req);
+        return { tool: "finish", args: { summary: "x" } };
+      },
+      { tool: "finish", args: { summary: "y" } },
+    ];
+    await run("normal", RED, script);
+    assert.match(refusal, /Call look to see the result first/);
+  });
+
+  it("with a text-only model, look explains itself and the criterion can be recorded as blocked", async () => {
+    let lookResult = "";
+    const script: ScriptStep[] = [
+      visualPlan,
+      { tool: "look", args: {} },
+      (req) => {
+        lookResult = lastToolResult(req);
+        return { tool: "record_result", args: { criterion: "AC1", status: "blocked", observed_text: "", notes: "needs a visual check" } };
+      },
+      { tool: "finish", args: { summary: "done" } },
+    ];
+    const browser = new JsdomDriver(await buildSampleApp("normal"));
+    const llm = new ScriptedProvider(script, { vision: false });
+    const report = await runAgent(ticket(RED), { llm, browser, runDir: runDir(), maxSteps: 20 });
+    assert.match(lookResult, /cannot read images .* blocked/);
+    assert.match(llm.requests[0].system, /This model cannot see images/, "a text-only model is told up front");
+    assert.equal(browser.captures, 0, "no screenshot is taken for a model that can't see it");
+    assert.equal(report.criteria[0].status, "blocked");
+  });
+
+  it("keeps only the newest screenshot in the conversation", () => {
+    const img = { mimeType: "image/png" as const, data: "x" };
+    const messages: Message[] = [
+      { role: "tool", toolCallId: "a", name: "look", content: "first", images: [img] },
+      { role: "tool", toolCallId: "b", name: "look", content: "second", images: [img] },
+    ];
+    pruneOldSnapshots(messages);
+    assert.equal((messages[0] as { images?: unknown }).images, undefined);
+    assert.match(messages[0].content, /older screenshot omitted/);
+    assert.equal((messages[1] as { images?: unknown[] }).images?.length, 1);
   });
 });

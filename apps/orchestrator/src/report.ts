@@ -52,7 +52,10 @@ export function formatResultComment(report: AgentReport, runLabel: string, artif
     if (c.status === "pass") {
       if (c.oracle?.held) lines.push(`    Checked: expected \`${c.oracle.expected}\` ✓ on page${c.howTested ? ` (${c.howTested})` : ""}`);
       else if (c.observed) lines.push(`    Evidence: \`${c.observed}\``);
+      // Appearance can't be verified in code: say so, and show the screenshot the model judged.
+      if (c.visual) lines.push(`    👁️ Looked: ${c.visual.expected} ✓ (the model's judgment from a screenshot)`, `    ![${c.id} as seen by the agent](${artifactsUrl}/${c.visual.screenshot})`);
     }
+    if (c.status === "fail" && c.visual) lines.push(`    👁️ Visual check (the model's judgment from a screenshot): expected ${c.visual.expected}`);
     if (c.oracle?.revised.length) {
       lines.push(`    ⚠️ The agent changed its expected result during the test (was: ${c.oracle.revised.map((r) => `\`${r}\``).join(", ")}); worth a human look.`);
     }

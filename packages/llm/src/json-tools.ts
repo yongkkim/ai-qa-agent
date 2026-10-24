@@ -11,6 +11,10 @@ export class JsonToolCallingProvider implements LLMProvider {
   readonly model: string;
   private counter = 0;
 
+  get vision() {
+    return this.inner.vision;
+  }
+
   constructor(private readonly inner: LLMProvider) {
     this.provider = `${inner.provider}+json-tools`;
     this.model = inner.model;
@@ -46,13 +50,16 @@ function flatten(messages: Message[]): Message[] {
       const c = m.toolCalls[0];
       out.push({ role: "assistant", content: JSON.stringify({ tool: c.name, args: c.args }) });
     } else if (m.role === "tool") {
-      out.push({ role: "user", content: `Result of ${m.name}:\n${m.content}` });
+      out.push({ role: "user", content: `Result of ${m.name}:\n${m.content}`, images: m.images });
     } else out.push(m);
   }
   // Merge consecutive user turns (some servers require alternation).
   return out.reduce<Message[]>((acc, m) => {
     const last = acc[acc.length - 1];
-    if (last && last.role === "user" && m.role === "user") last.content += `\n\n${m.content}`;
+    if (last && last.role === "user" && m.role === "user") {
+      last.content += `\n\n${m.content}`;
+      if (m.images?.length) last.images = [...(last.images ?? []), ...m.images];
+    }
     else acc.push({ ...m });
     return acc;
   }, []);

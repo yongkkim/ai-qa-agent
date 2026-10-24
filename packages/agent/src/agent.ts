@@ -1,8 +1,8 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { LLMProvider, Message, ToolCall } from "@ai-qa/llm";
+import type { ImageInput, LLMProvider, Message, ToolCall } from "@ai-qa/llm";
 import { formatSnapshot, StaleRefError, type BrowserDriver } from "./browser/driver.js";
-import { criterionId, initialPrompt, NUDGE_USE_TOOLS, PAGE_MARKER, SYSTEM_PROMPT } from "./prompts.js";
+import { criterionId, initialPrompt, NO_VISION_NOTE, NUDGE_USE_TOOLS, PAGE_MARKER, SYSTEM_PROMPT } from "./prompts.js";
 import { AGENT_TOOLS } from "./tools.js";
 import type { AgentReport, CriterionResult, CriterionStatus, RunVerdict, StepRecord, TicketUnderTest } from "./types.js";
 
@@ -32,6 +32,10 @@ interface TestPlan {
   howToTest: string;
   expectedText: string;
   mustNotAppear?: string;
+  /** For appearance criteria: what it must look like if it works. Judged from a screenshot (look). */
+  expectedLook?: string;
+  /** Step at which this plan was made: a visual verdict needs a look taken after it. */
+  plannedAt: number;
   /** Expectations the agent declared earlier and then replaced (shown to humans: changing the oracle after looking is suspicious). */
   previous: string[];
 }
@@ -44,6 +48,8 @@ interface ExecResult {
   /** Attach a fresh page snapshot to the tool result. */
   attachPage?: boolean;
   screenshot?: string;
+  /** Images for the model (the look tool). */
+  images?: ImageInput[];
 }
 
 /**
@@ -80,6 +86,8 @@ export async function runAgent(ticket: TicketUnderTest, opts: AgentOptions): Pro
   let error: string | undefined;
   let lastPage = "";
   let snapshotsThisTurn = 0;
+  /** The latest look: when it was taken and the screenshot file it saved. */
+  let lastLook: { step: number; file: string } | undefined;
 
   const takeSnapshot = async () => {
     lastPage = formatSnapshot(await browser.snapshot());
@@ -147,8 +155,28 @@ export async function runAgent(ticket: TicketUnderTest, opts: AgentOptions): Pro
       case "reload":
         await browser.reload();
         return { ok: true, outcome: "reloaded the page", attachPage: true };
+      case "look": {
+        if (!llm.vision) {
+          return {
+            ok: false,
+            outcome:
+              "this model cannot read images (LLM_VISION=false), so appearance cannot be checked. Record criteria about appearance as blocked, with a note that they need a visual check.",
+          };
+        }
+        const png = await browser.capture();
+        const file = `look-${String(stepN).padStart(2, "0")}.png`;
+        writeFileSync(join(runDir, file), png);
+        lastLook = { step: stepN, file };
+        return {
+          ok: true,
+          outcome: `screenshot of the visible window attached (${file})`,
+          detail: "Judge the appearance from the attached image. Use the text snapshot for everything else.",
+          screenshot: file,
+          images: [{ mimeType: "image/png", data: png.toString("base64") }],
+        };
+      }
       case "plan_test":
-        return planTest(a);
+        return planTest(a, stepN);
       case "record_result":
         return recordResult(a, stepN);
       case "finish": {
@@ -174,7 +202,7 @@ export async function runAgent(ticket: TicketUnderTest, opts: AgentOptions): Pro
   }
 
   /** The test oracle: what the page must show if the feature works, declared BEFORE looking at the result. */
-  function planTest(a: Record<string, unknown>): ExecResult {
+  function planTest(a: Record<string, unknown>, stepN: number): ExecResult {
     const target = findCriterion(criteria, a.criterion);
     if (!target) return { ok: false, outcome: `unknown criterion "${a.criterion}". Use one of ${criteria.map((c) => c.id).join(", ")}.` };
     const expectedText = String(a.expected_text ?? "").trim();
@@ -201,12 +229,16 @@ export async function runAgent(ticket: TicketUnderTest, opts: AgentOptions): Pro
       howToTest: String(a.how_to_test ?? "").trim(),
       expectedText,
       mustNotAppear: optStr(a.must_not_appear),
+      expectedLook: optStr(a.expected_look),
+      plannedAt: stepN,
       previous: retest ? [] : prev && prev.expectedText !== expectedText ? [...prev.previous, prev.expectedText] : (prev?.previous ?? []),
     });
     return {
       ok: true,
-      outcome: `planned ${target.id}: expect ${JSON.stringify(expectedText)}${a.must_not_appear ? `, and NOT ${JSON.stringify(a.must_not_appear)}` : ""}`,
-      detail: "Now set up the state and perform the steps. Record the verdict while the result is on screen.",
+      outcome: `planned ${target.id}: expect ${JSON.stringify(expectedText)}${a.must_not_appear ? `, and NOT ${JSON.stringify(a.must_not_appear)}` : ""}${optStr(a.expected_look) ? `, looking: ${JSON.stringify(optStr(a.expected_look))}` : ""}`,
+      detail: optStr(a.expected_look)
+        ? "Now set up the state and perform the steps, then call look to see the result, and record the verdict while it is on screen."
+        : "Now set up the state and perform the steps. Record the verdict while the result is on screen.",
     };
   }
 
@@ -220,6 +252,15 @@ export async function runAgent(ticket: TicketUnderTest, opts: AgentOptions): Pro
       return { ok: false, outcome: `no test plan for ${target.id}. Call plan_test first (how you will test it and the exact text you expect), then test, then record.` };
     }
     const observed = String(a.observed_text ?? "").trim();
+
+    // A verdict about appearance needs eyes on the result: a look taken after the plan, i.e. after the setup.
+    const visual = plan?.expectedLook && status !== "blocked";
+    if (visual && (!lastLook || lastLook.step < plan.plannedAt)) {
+      return {
+        ok: false,
+        outcome: `${target.id} is about appearance (${JSON.stringify(plan.expectedLook)}), which the text snapshot cannot show. Call look to see the result first, then record the verdict.`,
+      };
+    }
 
     // Evidence grounding: the quoted text must have actually been on a page the agent saw.
     const current = await takeSnapshot();
@@ -293,6 +334,7 @@ export async function runAgent(ticket: TicketUnderTest, opts: AgentOptions): Pro
       screenshot,
       grounded,
       oracle,
+      visual: visual && lastLook ? { expected: plan.expectedLook!, screenshot: lastLook.file } : undefined,
     });
     const left = remaining();
     return {
@@ -324,7 +366,8 @@ export async function runAgent(ticket: TicketUnderTest, opts: AgentOptions): Pro
       }
 
       pruneOldSnapshots(messages);
-      const res = await llm.chat({ system: SYSTEM_PROMPT, messages, tools: AGENT_TOOLS, maxTokens: opts.maxTokens ?? 8192 });
+      const system = llm.vision ? SYSTEM_PROMPT : SYSTEM_PROMPT + NO_VISION_NOTE;
+      const res = await llm.chat({ system, messages, tools: AGENT_TOOLS, maxTokens: opts.maxTokens ?? 8192 });
       usage.llmCalls++;
       usage.inputTokens += res.usage.inputTokens;
       usage.outputTokens += res.usage.outputTokens;
@@ -382,7 +425,7 @@ export async function runAgent(ticket: TicketUnderTest, opts: AgentOptions): Pro
           at: new Date().toISOString(),
         });
         log(`  ${result.ok ? "→" : "✗"} ${String(n).padStart(2)} ${call.name}: ${result.outcome}`);
-        messages.push({ role: "tool", toolCallId: call.id, name: call.name, content });
+        messages.push({ role: "tool", toolCallId: call.id, name: call.name, content, ...(result.images ? { images: result.images } : {}) });
       }
     }
   } catch (err) {
@@ -465,8 +508,15 @@ export function isGrounded(observed: string, pages: string[]): boolean {
   return pages.some((p) => re.test(norm(p)));
 }
 
-/** Keeps only the newest page snapshot in the conversation to bound token usage. */
+/** Keeps only the newest page snapshot (and the newest screenshot) in the conversation to bound token usage. */
 export function pruneOldSnapshots(messages: Message[]) {
+  const withImages = messages.filter((m) => (m.role === "user" || m.role === "tool") && m.images?.length);
+  for (const m of withImages.slice(0, -1)) {
+    if (m.role === "user" || m.role === "tool") {
+      delete m.images;
+      m.content += "\n\n(older screenshot omitted)";
+    }
+  }
   const withPage = messages
     .map((m, i) => ({ m, i }))
     .filter(({ m }) => (m.role === "user" || m.role === "tool") && m.content.includes(PAGE_MARKER));

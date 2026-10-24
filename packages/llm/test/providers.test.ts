@@ -180,3 +180,59 @@ describe("HTTP handling", () => {
     assert.equal(calls.length, 1);
   });
 });
+
+describe("screenshots (the look tool)", () => {
+  const img = { mimeType: "image/png" as const, data: "iVBORw0KGgo" };
+  const withLook: ChatRequest = {
+    system: "s",
+    messages: [
+      { role: "user", content: "Test AC1" },
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          { id: "c1", name: "look", args: {}, meta: { signedBy: "m" } },
+          { id: "c2", name: "click", args: { ref: "e1" }, meta: { signedBy: "m" } },
+        ],
+      },
+      { role: "tool", toolCallId: "c1", name: "look", content: "OK: screenshot attached", images: [img] },
+      { role: "tool", toolCallId: "c2", name: "click", content: "OK: clicked" },
+    ],
+    tools: [clickTool],
+  };
+
+  it("Gemini: sends the image as inlineData in the same turn as the tool results", async () => {
+    const calls = mockFetch({ json: { candidates: [{ content: { role: "model", parts: [{ text: "ok" }] } }] } });
+    await new GeminiProvider({ apiKey: "k", model: "m" }).chat(withLook);
+    const parts = calls[0].body.contents[2].parts;
+    assert.equal(calls[0].body.contents[2].role, "user");
+    assert.deepEqual(parts[0].functionResponse.name, "look");
+    assert.deepEqual(parts[1].inlineData, { mimeType: "image/png", data: "iVBORw0KGgo" });
+    assert.equal(parts[2].functionResponse.name, "click");
+  });
+
+  it("OpenAI: keeps tool results together, then sends the image in a user message after them", async () => {
+    const calls = mockFetch({ json: { choices: [{ message: { role: "assistant", content: "ok" } }] } });
+    await new OpenAICompatibleProvider({ apiKey: "k", model: "m", vision: true }).chat(withLook);
+    const msgs = calls[0].body.messages;
+    assert.deepEqual(
+      msgs.map((m: any) => m.role),
+      ["system", "user", "assistant", "tool", "tool", "user"],
+    );
+    assert.equal(msgs[5].content[1].image_url.url, "data:image/png;base64,iVBORw0KGgo");
+  });
+
+  it("Anthropic: puts the image inside the tool_result block", async () => {
+    const calls = mockFetch({ json: { content: [{ type: "text", text: "ok" }] } });
+    await new AnthropicProvider({ apiKey: "k", model: "m" }).chat(withLook);
+    const result = calls[0].body.messages[2].content[0];
+    assert.equal(result.type, "tool_result");
+    assert.deepEqual(result.content[1], { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBORw0KGgo" } });
+  });
+
+  it("knows which providers read images by default", () => {
+    assert.equal(new GeminiProvider({ apiKey: "k", model: "m" }).vision, true);
+    assert.equal(new AnthropicProvider({ apiKey: "k", model: "m" }).vision, true);
+    assert.equal(new OpenAICompatibleProvider({ model: "m" }).vision, false);
+  });
+});

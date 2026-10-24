@@ -42,6 +42,27 @@ describe("result comment", () => {
   });
 });
 
+describe("visual verdicts", () => {
+  it("labels them as the model's judgment from a screenshot, and shows that screenshot", () => {
+    const report: AgentReport = {
+      ...base,
+      verdict: "passed",
+      criteria: [
+        {
+          id: "AC1",
+          text: "The error is red",
+          status: "pass",
+          oracle: { expected: "Todo cannot be empty.", held: true, revised: [] },
+          visual: { expected: "the error text is red", screenshot: "look-07.png" },
+        },
+      ],
+    };
+    const body = formatResultComment(report, "r", "http://x/artifacts/r");
+    assert.match(body, /👁️ Looked: the error text is red ✓ \(the model's judgment from a screenshot\)/);
+    assert.match(body, /!\[AC1 as seen by the agent\]\(http:\/\/x\/artifacts\/r\/look-07\.png\)/);
+  });
+});
+
 describe("groupFailures", () => {
   const c = (id: string, status: "pass" | "fail", sameDefectAs?: string) => ({ id, text: id, status, sameDefectAs });
   const criteria = [c("AC1", "fail"), c("AC2", "pass"), c("AC3", "fail", "AC1"), c("AC4", "fail")];

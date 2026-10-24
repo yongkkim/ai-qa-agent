@@ -27,6 +27,10 @@ export class FallbackProvider implements LLMProvider {
     return this.chain[this.current].model;
   }
 
+  get vision() {
+    return this.chain[this.current].vision;
+  }
+
   /** Every model this instance has used so far, e.g. ["gemini-3.5-flash-lite", "gemini-3.6-flash"]. */
   get modelsUsed() {
     return this.chain.slice(0, this.current + 1).map((p) => p.model);

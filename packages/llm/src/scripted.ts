@@ -13,9 +13,15 @@ export class ScriptedProvider implements LLMProvider {
   readonly provider = "scripted";
   readonly model = "scripted";
   readonly requests: ChatRequest[] = [];
+  readonly vision: boolean;
   private i = 0;
 
-  constructor(private readonly script: ScriptStep[]) {}
+  constructor(
+    private readonly script: ScriptStep[],
+    opts: { vision?: boolean } = {},
+  ) {
+    this.vision = opts.vision ?? true;
+  }
 
   async chat(req: ChatRequest): Promise<ChatResponse> {
     this.requests.push(structuredClone(req));

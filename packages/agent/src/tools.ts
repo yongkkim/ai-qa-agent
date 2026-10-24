@@ -55,8 +55,22 @@ export const AGENT_TOOLS: ToolDefinition[] = [
         how_to_test: { type: "string", description: "Setup and steps, e.g. 'Add 3 todos, complete 1, read the footer'." },
         expected_text: { type: "string", description: 'Exact text that must be on the page if it works, e.g. "2 items left" or "Todo cannot be empty."' },
         must_not_appear: { type: "string", description: "Optional text that must NOT be on the page if it works (e.g. a todo that should have been removed)." },
+        expected_look: {
+          type: "string",
+          description:
+            'Only for criteria about appearance (colour, border, strike-through, layout) that the text snapshot cannot show: what it must look like if it works, e.g. "the error text is red". Then use look before recording. expected_text still names the element, e.g. "Todo cannot be empty.".',
+        },
       },
       required: ["criterion", "how_to_test", "expected_text"],
+    },
+  },
+  {
+    name: "look",
+    description:
+      "See a screenshot of the visible window. Use it only for criteria about appearance (colours, borders, strike-through, layout), which the text snapshot cannot show. Everything else: use the snapshot.",
+    parameters: {
+      type: "object",
+      properties: { what: { type: "string", description: "What you want to check, e.g. 'colour of the error message'." } },
     },
   },
   {

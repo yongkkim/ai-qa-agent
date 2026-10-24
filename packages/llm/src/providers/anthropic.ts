@@ -1,10 +1,12 @@
 import { postJson } from "../http.js";
 import type { ChatRequest, ChatResponse, LLMProvider, Message, ToolCall } from "../types.js";
 
+type ImageBlock = { type: "image"; source: { type: "base64"; media_type: string; data: string } };
 type Block =
   | { type: "text"; text: string }
+  | ImageBlock
   | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
-  | { type: "tool_result"; tool_use_id: string; content: string };
+  | { type: "tool_result"; tool_use_id: string; content: string | ({ type: "text"; text: string } | ImageBlock)[] };
 
 interface AnthropicMessage {
   role: "user" | "assistant";
@@ -22,18 +24,22 @@ export interface AnthropicOptions {
   apiKey: string;
   model: string;
   baseUrl?: string;
+  /** The model reads images (Claude models are multimodal; default true). */
+  vision?: boolean;
 }
 
 /** Anthropic Claude via the Messages API. */
 export class AnthropicProvider implements LLMProvider {
   readonly provider = "anthropic";
   readonly model: string;
+  readonly vision: boolean;
   private readonly apiKey: string;
   private readonly baseUrl: string;
   private readonly retries?: number;
 
   constructor(opts: AnthropicOptions) {
     this.model = opts.model;
+    this.vision = opts.vision ?? true;
     this.retries = opts.retries;
     this.apiKey = opts.apiKey;
     this.baseUrl = (opts.baseUrl || "https://api.anthropic.com/v1").replace(/\/$/, "");
@@ -73,6 +79,11 @@ export class AnthropicProvider implements LLMProvider {
   }
 }
 
+const imageBlock = (img: { mimeType: string; data: string }): ImageBlock => ({
+  type: "image",
+  source: { type: "base64", media_type: img.mimeType, data: img.data },
+});
+
 function toMessages(messages: Message[]): AnthropicMessage[] {
   const out: AnthropicMessage[] = [];
   const push = (role: AnthropicMessage["role"], block: Block) => {
@@ -82,12 +93,18 @@ function toMessages(messages: Message[]): AnthropicMessage[] {
     else out.push({ role, content: [block] });
   };
   for (const m of messages) {
-    if (m.role === "user") push("user", { type: "text", text: m.content });
+    if (m.role === "user") {
+      push("user", { type: "text", text: m.content });
+      for (const img of m.images ?? []) push("user", imageBlock(img));
+    }
     else if (m.role === "assistant") {
       if (m.content) push("assistant", { type: "text", text: m.content });
       for (const c of m.toolCalls ?? []) push("assistant", { type: "tool_use", id: c.id, name: c.name, input: c.args });
       if (!m.content && !m.toolCalls?.length) push("assistant", { type: "text", text: "(no response)" });
-    } else push("user", { type: "tool_result", tool_use_id: m.toolCallId, content: m.content });
+    } else {
+      const content = m.images?.length ? [{ type: "text" as const, text: m.content }, ...m.images.map(imageBlock)] : m.content;
+      push("user", { type: "tool_result", tool_use_id: m.toolCallId, content });
+    }
   }
   return out;
 }

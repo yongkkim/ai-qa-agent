@@ -32,6 +32,8 @@ export interface CriterionResult {
   sameDefectAs?: string;
   /** The test oracle declared before testing, and whether the page confirmed it when the verdict was recorded. */
   oracle?: { expected: string; mustNotAppear?: string; held: boolean; revised: string[] };
+  /** For criteria about appearance: the planned look and the screenshot (from the look tool) the model judged it on. */
+  visual?: { expected: string; screenshot: string };
 }
 
 export interface StepRecord {

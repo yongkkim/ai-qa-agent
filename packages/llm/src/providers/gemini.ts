@@ -5,6 +5,7 @@ interface GeminiPart {
   text?: string;
   functionCall?: { name: string; args?: Record<string, unknown>; id?: string };
   functionResponse?: { name: string; response: Record<string, unknown>; id?: string };
+  inlineData?: { mimeType: string; data: string };
   thoughtSignature?: string;
   thought?: boolean;
 }
@@ -24,18 +25,22 @@ export interface GeminiOptions {
   apiKey: string;
   model: string;
   baseUrl?: string;
+  /** The model reads images (Gemini models are multimodal; default true). */
+  vision?: boolean;
 }
 
 /** Google Gemini via the Generative Language REST API (the same key you get from aistudio.google.com). */
 export class GeminiProvider implements LLMProvider {
   readonly provider = "gemini";
   readonly model: string;
+  readonly vision: boolean;
   private readonly apiKey: string;
   private readonly baseUrl: string;
   private readonly retries?: number;
 
   constructor(opts: GeminiOptions) {
     this.model = opts.model;
+    this.vision = opts.vision ?? true;
     this.retries = opts.retries;
     this.apiKey = opts.apiKey;
     this.baseUrl = (opts.baseUrl || "https://generativelanguage.googleapis.com/v1beta").replace(/\/$/, "");
@@ -117,7 +122,10 @@ function toContents(messages: Message[], model: string): GeminiContent[] {
   };
 
   for (const m of messages) {
-    if (m.role === "user") push("user", { text: m.content });
+    if (m.role === "user") {
+      push("user", { text: m.content });
+      for (const img of m.images ?? []) push("user", { inlineData: { mimeType: img.mimeType, data: img.data } });
+    }
     else if (m.role === "assistant") {
       if (m.content) push("model", { text: m.content });
       for (const c of m.toolCalls ?? []) {
@@ -133,6 +141,8 @@ function toContents(messages: Message[], model: string): GeminiContent[] {
       if (!m.content && !m.toolCalls?.length) push("model", { text: "(no response)" });
     } else {
       push("user", { functionResponse: { name: m.name, response: { result: m.content } } });
+      // Images go in the same user turn, right after the function response they belong to.
+      for (const img of m.images ?? []) push("user", { inlineData: { mimeType: img.mimeType, data: img.data } });
     }
   }
   return out;
